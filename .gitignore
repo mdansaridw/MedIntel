@@ -1,1 +1,26 @@
 node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.env
+venv/
+.venv/
+env/
+*.log
+
+# Node & Frontend
+node_modules/
+dist/
+build/
+.npm
+.eslintcache
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+.~lock.*
+*.tmp

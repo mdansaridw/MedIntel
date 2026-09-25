@@ -1,5 +1,6 @@
 import {
   Activity,
+  Box,
   Dna,
   FlaskConical,
   House,
@@ -29,6 +30,7 @@ const sectorItems: NavigationItem[] = [
 const researchItems: NavigationItem[] = [
   { label: 'Treatment Intelligence', to: '/treatment-intelligence', icon: FlaskConical },
   { label: 'Knowledge Graph', to: '/knowledge-graph', icon: Network },
+  { label: 'Supply Chain', to: '/supply-chain', icon: Box },
   { label: 'Admin Panel', to: '/admin', icon: ShieldCheck },
   { label: 'Chatbot', to: '/chatbot', icon: MessagesSquare },
 ]

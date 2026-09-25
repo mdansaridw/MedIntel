@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediSynapse - Clinical Knowledge Graph Explorer</title>
+  <!-- Vis.js Network CDN -->
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    #network-container { width: 100%; height: calc(100vh - 72px); }
+    .badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 9999px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 flex flex-col h-screen overflow-hidden">
+
+  <!-- Header & Toolbar -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center z-20 shadow-sm">
+    <div class="flex items-center gap-3">
+      <div class="h-3 w-3 rounded-full bg-slate-900 animate-pulse"></div>
+      <div>
+        <h1 class="font-extrabold text-base tracking-wide text-slate-900">MEDISYNAPSE GRAPH EXPLORER</h1>
+        <p class="text-xs text-slate-500 font-medium">Interactive Knowledge Graph • FHIR R4 • SALAD Safety • Supply Chain</p>
+      </div>
+    </div>
+
+    <!-- Quick Story Presets for Judges -->
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Judge Demos:</span>
+      <button onclick="loadStory('all')" class="story-btn text-xs font-bold bg-slate-900 text-white px-3 py-1.5 rounded-lg border border-slate-900 transition hover:bg-slate-800">
+        All Entities (Overview)
+      </button>
+      <button onclick="loadStory('salad')" class="story-btn text-xs font-bold bg-white text-rose-700 px-3 py-1.5 rounded-lg border border-rose-300 transition hover:bg-rose-50">
+        ⚠️ SALAD Confusion
+      </button>
+      <button onclick="loadStory('treatment')" class="story-btn text-xs font-bold bg-white text-emerald-700 px-3 py-1.5 rounded-lg border border-emerald-300 transition hover:bg-emerald-50">
+        📈 Treatment Outcome
+      </button>
+      <button onclick="loadStory('supply')" class="story-btn text-xs font-bold bg-white text-sky-700 px-3 py-1.5 rounded-lg border border-sky-300 transition hover:bg-sky-50">
+        📦 Supply Chain Alert
+      </button>
+    </div>
+
+    <!-- Search & Stats -->
+    <div class="flex items-center gap-3">
+      <div class="relative">
+        <input id="searchInput" type="text" placeholder="Search node (e.g. Celebrex, Metformin)..." 
+               oninput="searchNode(this.value)"
+               class="text-xs bg-slate-100 text-slate-800 placeholder-slate-400 pl-3 pr-8 py-1.5 rounded-lg border border-slate-300 focus:outline-none focus:border-slate-900 w-64 transition" />
+        <span class="absolute right-2.5 top-1.5 text-xs text-slate-400">🔍</span>
+      </div>
+      <button onclick="resetPhysics()" class="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-300 transition">
+        Stabilize
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Body: Network Canvas + Sidebar -->
+  <div class="flex flex-1 relative overflow-hidden">
+
+    <!-- Filter & Legend Bar (Top Left Overlay) -->
+    <div class="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur p-3.5 rounded-xl border border-slate-200 shadow-lg text-xs space-y-2 max-w-xs">
+      <span class="font-extrabold text-slate-900 uppercase tracking-wider block text-[11px]">Entity Legend & Filter</span>
+      <div class="grid grid-cols-2 gap-2 text-slate-700">
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Patient', this.checked)" class="accent-slate-900 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-slate-800"></span> Patient (UUID)
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Condition', this.checked)" class="accent-amber-600 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span> Condition
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Medication', this.checked)" class="accent-sky-600 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-sky-500"></span> Medication
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Observation', this.checked)" class="accent-emerald-600 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span> Lab Biomarker
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Inventory', this.checked)" class="accent-purple-600 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-purple-500"></span> Pharmacy Stock
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked onchange="toggleGroup('Allergy', this.checked)" class="accent-rose-600 rounded">
+          <span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span> Allergy
+        </label>
+      </div>
+      <div class="pt-1.5 border-t border-slate-100 flex justify-between text-[11px] text-slate-500 font-medium">
+        <span>Click node to inspect</span>
+        <span>Drag to explore</span>
+      </div>
+    </div>
+
+    <!-- Vis.js Graph Canvas -->
+    <div id="network-container" class="flex-1 bg-white"></div>
+
+    <!-- Right Inspection Sidebar -->
+    <aside id="inspector" class="w-96 bg-white border-l border-slate-200 p-6 flex flex-col justify-between overflow-y-auto z-10 shadow-lg">
+      <div id="inspectorContent">
+        <div class="text-center py-16 text-slate-400">
+          <div class="text-4xl mb-3">🔬</div>
+          <h3 class="font-bold text-slate-700 text-sm">Select Any Node</h3>
+          <p class="text-xs text-slate-400 mt-1 max-w-xs mx-auto">Click on a patient, condition, drug, or inventory node to inspect clinical properties, HIPAA tokens, and real-time safety alerts.</p>
+        </div>
+      </div>
+      <div class="pt-4 border-t border-slate-100 text-center">
+        <span class="text-[11px] text-slate-400">Powered by Neo4j Knowledge Graph & FHIR R4</span>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // MASTER DATASET DEFINITION (Covers EVERYTHING requested)
+    // -------------------------------------------------------------
+    const rawNodes = [
+      // 1. PATIENTS (De-identified HIPAA UUIDs)
+      { id: 'p1', label: 'Patient (Age 48, M)', group: 'Patient', title: 'URN:UUID:cc3eac4a-34a7-9a15 (Guillermo R.)', birth_year: 1978, gender: 'Male', race: 'White', income: '$58,000', risk_score: 'Moderate' },
+      { id: 'p2', label: 'Patient (Age 62, F)', group: 'Patient', title: 'URN:UUID:9a3814bb-f5b0-05f3 (Sarah M.)', birth_year: 1964, gender: 'Female', race: 'Black', income: '$42,000', risk_score: 'High' },
+      { id: 'p3', label: 'Patient (Age 34, M)', group: 'Patient', title: 'URN:UUID:12ab34cd-56ef-78ab (David K.)', birth_year: 1992, gender: 'Male', race: 'Asian', income: '$85,000', risk_score: 'Low' },
+
+      // 2. CONDITIONS
+      { id: 'c1', label: 'Type 2 Diabetes', group: 'Condition', code: 'E11.9 / SNOMED 44054006', status: 'Active (Chronic)', severity: 'Moderate' },
+      { id: 'c2', label: 'Essential Hypertension', group: 'Condition', code: 'I10 / SNOMED 59621000', status: 'Active (Chronic)', severity: 'Stage 1' },
+      { id: 'c3', label: 'Viral Sinusitis', group: 'Condition', code: 'J01.90 / SNOMED 444814009', status: 'Resolved (Acute)', resolved_at: '2024-02-14' },
+      { id: 'c4', label: 'Osteoarthritis (Joint Pain)', group: 'Condition', code: 'M19.90 / SNOMED 396275006', status: 'Active', severity: 'Severe' },
+      { id: 'c5', label: 'Major Depressive Disorder', group: 'Condition', code: 'F32.9 / SNOMED 370143000', status: 'Active', severity: 'Moderate' },
+
+      // 3. MEDICATIONS
+      { id: 'm1', label: 'Metformin 500mg', group: 'Medication', rxnorm: '866514', category: 'Biguanide Antidiabetic', dosage: '500mg BID Oral' },
+      { id: 'm2', label: 'Lisinopril 10mg', group: 'Medication', rxnorm: '314076', category: 'ACE Inhibitor', dosage: '10mg Daily Oral' },
+      { id: 'm3', label: 'Amoxicillin 500mg', group: 'Medication', rxnorm: '313782', category: 'Penicillin Antibiotic', dosage: '500mg TID Oral (7 days)' },
+      { id: 'm4', label: 'Augmentin 500/125mg', group: 'Medication', rxnorm: '197960', category: 'Penicillin + Beta-Lactamase Inhibitor', dosage: 'Oral Tablet' },
+      { id: 'm5', label: 'Celebrex 200mg', group: 'Medication', rxnorm: '213469', category: 'COX-2 Selective NSAID', dosage: '200mg Daily for Arthritis' },
+      { id: 'm6', label: 'Celexa 20mg', group: 'Medication', rxnorm: '152839', category: 'SSRI Antidepressant', dosage: '20mg Daily for Depression' },
+      { id: 'm7', label: 'Metronidazole 500mg', group: 'Medication', rxnorm: '197361', category: 'Nitroimidazole Antibiotic', dosage: '500mg Oral' },
+
+      // 4. OBSERVATIONS (Longitudinal Biomarkers showing Treatment Intelligence)
+      { id: 'o1', label: 'HbA1c Baseline: 8.4%', group: 'Observation', test: 'Hemoglobin A1c', value: '8.4%', date: '2023-08-10', stage: 'Pre-Treatment' },
+      { id: 'o2', label: 'HbA1c Follow-up: 6.8%', group: 'Observation', test: 'Hemoglobin A1c', value: '6.8%', date: '2024-02-10', stage: 'Post-Metformin (Outcome: EFFECTIVE)' },
+      { id: 'o3', label: 'Systolic BP: 154 mmHg', group: 'Observation', test: 'Blood Pressure', value: '154/92 mmHg', date: '2023-09-01', stage: 'Pre-Treatment (Hypertensive)' },
+      { id: 'o4', label: 'Systolic BP: 122 mmHg', group: 'Observation', test: 'Blood Pressure', value: '122/78 mmHg', date: '2024-01-15', stage: 'Post-Lisinopril (Outcome: EFFECTIVE)' },
+
+      // 5. PHARMACY INVENTORY (Supply Chain Nodes)
+      { id: 'inv1', label: 'Stock: Metformin (142 boxes)', group: 'Inventory', stock: 142, threshold: 30, lot: 'LOT-2026-MET01', status: 'IN_STOCK', location: 'Main Pharmacy Bay 4' },
+      { id: 'inv2', label: 'CRITICAL: Amoxicillin (3 left)', group: 'Inventory', stock: 3, threshold: 15, lot: 'LOT-2026-AMX09', status: 'CRITICAL_SHORTAGE', location: 'Cold Bay 1' },
+      { id: 'inv3', label: 'Stock: Celebrex (85 boxes)', group: 'Inventory', stock: 85, threshold: 20, lot: 'LOT-2026-CLB88', status: 'IN_STOCK', location: 'Vault A' },
+      { id: 'inv4', label: 'Glucose Test Strips (120 pk)', group: 'Inventory', stock: 120, threshold: 25, lot: 'LOT-2026-STRIPS', status: 'IN_STOCK', location: 'Supply Bay 2' },
+
+      // 6. ALLERGIES
+      { id: 'a1', label: 'Allergy: Penicillin', group: 'Allergy', substance: 'Penicillin / Beta-lactams', severity: 'SEVERE (Anaphylaxis Risk)' }
+    ];
+
+    const rawEdges = [
+      // Patient 1 diagnoses & treatments
+      { from: 'p1', to: 'c1', label: 'DIAGNOSED_WITH', color: { color: '#f59e0b' } },
+      { from: 'p1', to: 'm1', label: 'PRESCRIBED (Outcome: EFFECTIVE)', color: { color: '#10b981' }, width: 2 },
+      { from: 'm1', to: 'c1', label: 'TREATS', color: { color: '#0ea5e9' } },
+      { from: 'm1', to: 'inv1', label: 'STOCKED_IN', color: { color: '#8b5cf6' } },
+      { from: 'm1', to: 'inv4', label: 'REQUIRES_SUPPLY', color: { color: '#8b5cf6' } },
+      { from: 'p1', to: 'o1', label: 'BASELINE_LAB' },
+      { from: 'p1', to: 'o2', label: 'POST_TX_LAB', color: { color: '#10b981' } },
+
+      // Patient 2 diagnoses & treatments
+      { from: 'p2', to: 'c2', label: 'DIAGNOSED_WITH', color: { color: '#f59e0b' } },
+      { from: 'p2', to: 'm2', label: 'PRESCRIBED (Outcome: EFFECTIVE)', color: { color: '#10b981' }, width: 2 },
+      { from: 'm2', to: 'c2', label: 'TREATS', color: { color: '#0ea5e9' } },
+      { from: 'p2', to: 'o3', label: 'BASELINE_LAB' },
+      { from: 'p2', to: 'o4', label: 'POST_TX_LAB', color: { color: '#10b981' } },
+      { from: 'p2', to: 'c4', label: 'DIAGNOSED_WITH', color: { color: '#f59e0b' } },
+      { from: 'p2', to: 'm5', label: 'PRESCRIBED', color: { color: '#0ea5e9' } },
+      { from: 'm5', to: 'c4', label: 'TREATS' },
+      { from: 'm5', to: 'inv3', label: 'STOCKED_IN', color: { color: '#8b5cf6' } },
+
+      // Patient 3 & Acute Illness
+      { from: 'p3', to: 'c3', label: 'DIAGNOSED_WITH', color: { color: '#f59e0b' } },
+      { from: 'p3', to: 'm3', label: 'PRESCRIBED', color: { color: '#0ea5e9' } },
+      { from: 'm3', to: 'c3', label: 'TREATS (Outcome: RESOLVED)' },
+      { from: 'm3', to: 'inv2', label: 'STOCKED_IN (LOW STOCK ALERT)', color: { color: '#ef4444' }, width: 3 },
+      { from: 'p3', to: 'a1', label: 'ALLERGIC_TO (CONTRAINDICATION!)', color: { color: '#ef4444' }, width: 3 },
+
+      // ISMP SALAD Warning Edges (Sound-Alike Look-Alike Confusion Pairs)
+      { 
+        from: 'm5', to: 'm6', 
+        label: '⚠️ SALAD CONFUSION (Score: 0.88)', 
+        color: { color: '#ef4444' }, 
+        dashes: true, 
+        width: 3.5, 
+        title: 'CRITICAL ISMP ALERT: Celebrex (NSAID) vs Celexa (Antidepressant) can cause serotonin syndrome or fatal bleed.' 
+      },
+      { 
+        from: 'm1', to: 'm7', 
+        label: '⚠️ SALAD CONFUSION (Score: 0.84)', 
+        color: { color: '#ef4444' }, 
+        dashes: true, 
+        width: 3.5, 
+        title: 'HIGH ISMP ALERT: Metformin (Diabetes) vs Metronidazole (Antibacterial) causes severe hypoglycemia.' 
+      },
+      { 
+        from: 'm3', to: 'm4', 
+        label: '⚠️ SALAD LOOK-ALIKE', 
+        color: { color: '#f97316' }, 
+        dashes: true, 
+        width: 2.5 
+      }
+    ];
+
+    // Color definitions for nodes
+    const groupStyles = {
+      Patient: { color: { background: '#0f172a', border: '#020617' }, font: { color: '#ffffff' }, shape: 'dot', size: 24 },
+      Condition: { color: { background: '#f59e0b', border: '#b45309' }, font: { color: '#ffffff' }, shape: 'dot', size: 20 },
+      Medication: { color: { background: '#0284c7', border: '#0369a1' }, font: { color: '#ffffff' }, shape: 'dot', size: 22 },
+      Observation: { color: { background: '#10b981', border: '#047857' }, font: { color: '#ffffff' }, shape: 'box', margin: 10 },
+      Inventory: { color: { background: '#8b5cf6', border: '#6d28d9' }, font: { color: '#ffffff' }, shape: 'hexagon', size: 24 },
+      Allergy: { color: { background: '#ef4444', border: '#b91c1c' }, font: { color: '#ffffff' }, shape: 'diamond', size: 22 }
+    };
+
+    // Initialize Vis.js dataset
+    const nodes = new vis.DataSet(rawNodes.map(n => ({ ...n, ...groupStyles[n.group] })));
+    const edges = new vis.DataSet(rawEdges.map(e => ({
+      ...e,
+      font: { size: 10, align: 'middle', background: '#ffffff', strokeWidth: 0 },
+      arrows: { to: { enabled: true, scaleFactor: 0.6 } }
+    })));
+
+    const container = document.getElementById('network-container');
+    const options = {
+      nodes: {
+        borderWidth: 2,
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.1)', size: 5, x: 2, y: 2 }
+      },
+      edges: {
+        smooth: { type: 'continuous' }
+      },
+      physics: {
+        stabilization: { iterations: 150 },
+        barnesHut: { gravitationalConstant: -3500, springLength: 130, springConstant: 0.04 }
+      },
+      interaction: {
+        hover: true,
+        tooltipDelay: 100,
+        navigationButtons: true,
+        keyboard: true
+      }
+    };
+
+    const network = new vis.Network(container, { nodes, edges }, options);
+
+    // Inspector Click Handler
+    network.on('click', function(params) {
+      if (params.nodes.length > 0) {
+        const nodeId = params.nodes[0];
+        const node = nodes.get(nodeId);
+        showInspector(node);
+      }
+    });
+
+    function showInspector(node) {
+      const container = document.getElementById('inspectorContent');
+      let badgeColor = "bg-slate-800 text-white";
+      if (node.group === 'Condition') badgeColor = "bg-amber-100 text-amber-800 border border-amber-300";
+      if (node.group === 'Medication') badgeColor = "bg-sky-100 text-sky-800 border border-sky-300";
+      if (node.group === 'Observation') badgeColor = "bg-emerald-100 text-emerald-800 border border-emerald-300";
+      if (node.group === 'Inventory') badgeColor = "bg-purple-100 text-purple-800 border border-purple-300";
+      if (node.group === 'Allergy') badgeColor = "bg-rose-100 text-rose-800 border border-rose-300";
+
+      let html = `
+        <div class="space-y-4">
+          <div class="flex justify-between items-start">
+            <span class="badge ${badgeColor}">${node.group}</span>
+            <span class="text-xs font-mono text-slate-400">ID: ${node.id}</span>
+          </div>
+
+          <div>
+            <h2 class="text-xl font-black text-slate-900 leading-tight">${node.label}</h2>
+            ${node.title ? `<p class="text-xs font-mono text-slate-500 mt-1 break-all">${node.title}</p>` : ''}
+          </div>
+
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+            <h4 class="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Entity Properties</h4>
+      `;
+
+      for (const [key, val] of Object.entries(node)) {
+        if (!['id', 'label', 'group', 'title', 'color', 'shape', 'font', 'size', 'margin'].includes(key)) {
+          html += `
+            <div class="flex justify-between py-1 border-b border-slate-200/60 last:border-none">
+              <span class="text-slate-500 capitalize font-medium">${key.replace('_', ' ')}:</span>
+              <span class="font-bold text-slate-900">${val}</span>
+            </div>
+          `;
+        }
+      }
+
+      html += `</div>`;
+
+      // Special Clinical Alerts if Applicable
+      if (node.id === 'm5' || node.id === 'm6') {
+        html += `
+          <div class="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs">
+            <div class="flex items-center gap-2 font-bold text-rose-800 mb-1">
+              <span>⚠️ CRITICAL SALAD ALERT (ISMP)</span>
+            </div>
+            <p class="text-rose-700 text-[11px] leading-relaxed">
+              <strong>Celebrex (NSAID)</strong> and <strong>Celexa (SSRI Antidepressant)</strong> have an 88% phonetic similarity score. Inadvertent substitution has caused fatal upper GI hemorrhages.
+            </p>
+          </div>
+        `;
+      } else if (node.id === 'inv2' || node.id === 'm3') {
+        html += `
+          <div class="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs">
+            <div class="flex items-center gap-2 font-bold text-amber-800 mb-1">
+              <span>📦 SUPPLY CHAIN SHORTAGE ALERT</span>
+            </div>
+            <p class="text-amber-700 text-[11px] leading-relaxed">
+              <strong>Amoxicillin 500mg</strong> stock is currently at <strong>3 units</strong> (Reorder threshold: 15). Graph recommends therapeutic substitution to <em>Azithromycin</em> or hospital restock.
+            </p>
+          </div>
+        `;
+      } else if (node.id === 'p1') {
+        html += `
+          <div class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs">
+            <div class="flex items-center gap-2 font-bold text-emerald-800 mb-1">
+              <span>📈 TREATMENT INTELLIGENCE SUCCESS</span>
+            </div>
+            <p class="text-emerald-700 text-[11px] leading-relaxed">
+              Longitudinal analysis: HbA1c dropped from <strong>8.4%</strong> to <strong>6.8%</strong> (&Delta; = -1.6%) after 6 months of Metformin 500mg. Treatment classified as <strong>HIGHLY EFFECTIVE</strong>.
+            </p>
+          </div>
+        `;
+      }
+
+      html += `</div>`;
+      container.innerHTML = html;
+    }
+
+    // Story Presets for Judges
+    function loadStory(type) {
+      document.querySelectorAll('.story-btn').forEach(b => {
+        b.className = "story-btn text-xs font-bold bg-white text-slate-700 px-3 py-1.5 rounded-lg border border-slate-300 transition hover:bg-slate-100";
+      });
+      event.target.className = "story-btn text-xs font-bold bg-slate-900 text-white px-3 py-1.5 rounded-lg border border-slate-900 transition";
+
+      if (type === 'all') {
+        nodes.forEach(n => nodes.update({ id: n.id, hidden: false }));
+        edges.forEach(e => edges.update({ id: e.id, hidden: false }));
+        network.fit();
+        showInspector(nodes.get('p1'));
+      } else if (type === 'salad') {
+        // Focus on Celebrex, Celexa, Metformin, Metronidazole
+        const saladIds = ['m5', 'm6', 'm1', 'm7', 'p1', 'p2', 'c4', 'c5'];
+        nodes.forEach(n => nodes.update({ id: n.id, hidden: !saladIds.includes(n.id) }));
+        network.fit();
+        showInspector(nodes.get('m5'));
+      } else if (type === 'treatment') {
+        // Focus on Patient 1, Diabetes, Metformin, Observations
+        const txIds = ['p1', 'c1', 'm1', 'o1', 'o2', 'inv1', 'inv4'];
+        nodes.forEach(n => nodes.update({ id: n.id, hidden: !txIds.includes(n.id) }));
+        network.fit();
+        showInspector(nodes.get('o2'));
+      } else if (type === 'supply') {
+        // Focus on Supply Chain nodes
+        const supplyIds = ['m3', 'inv2', 'p3', 'a1', 'c3', 'm1', 'inv1', 'inv4'];
+        nodes.forEach(n => nodes.update({ id: n.id, hidden: !supplyIds.includes(n.id) }));
+        network.fit();
+        showInspector(nodes.get('inv2'));
+      }
+    }
+
+    function searchNode(query) {
+      if (!query.trim()) {
+        nodes.forEach(n => nodes.update({ id: n.id, opacity: 1 }));
+        return;
+      }
+      const q = query.toLowerCase();
+      let matchedNodeId = null;
+      nodes.forEach(n => {
+        const matches = n.label.toLowerCase().includes(q) || (n.title && n.title.toLowerCase().includes(q));
+        if (matches && !matchedNodeId) matchedNodeId = n.id;
+        nodes.update({ id: n.id, opacity: matches ? 1 : 0.2 });
+      });
+
+      if (matchedNodeId) {
+        network.focus(matchedNodeId, { scale: 1.2, animation: true });
+        showInspector(nodes.get(matchedNodeId));
+      }
+    }
+
+    function toggleGroup(groupName, visible) {
+      nodes.forEach(n => {
+        if (n.group === groupName) {
+          nodes.update({ id: n.id, hidden: !visible });
+        }
+      });
+    }
+
+    function resetPhysics() {
+      network.stabilize();
+      network.fit();
+    }
+
+    // Default inspection
+    showInspector(nodes.get('m5'));
+  </script>
+</body>
+</html>

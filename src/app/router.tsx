@@ -9,8 +9,10 @@ import HomePage from '../pages/home/HomePage'
 import KnowledgeGraphPage from '../pages/knowledge-graph/KnowledgeGraphPage'
 import NotFoundPage from '../pages/not-found/NotFoundPage'
 import PatientsPage from '../pages/patients/PatientsPage'
+import PatientWorkspacePage from '../pages/patients/PatientWorkspacePage'
 import PatientIntelligencePage from '../pages/treatment-intelligence/PatientIntelligencePage'
 import TreatmentIntelligencePage from '../pages/treatment-intelligence/TreatmentIntelligencePage'
+import SupplyChainPage from '../pages/supply-chain/SupplyChainPage'
 
 export const router = createBrowserRouter([
   {
@@ -19,11 +21,13 @@ export const router = createBrowserRouter([
       { index: true, element: <HomePage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'patients', element: <PatientsPage /> },
+      { path: 'patients/:patientId', element: <PatientWorkspacePage /> },
       { path: 'cohorts', element: <CohortsPage /> },
       { path: 'cohorts/:cohortId', element: <CohortDetailsPage /> },
       { path: 'treatment-intelligence', element: <TreatmentIntelligencePage /> },
       { path: 'treatment-intelligence/:patientId', element: <PatientIntelligencePage /> },
       { path: 'knowledge-graph', element: <KnowledgeGraphPage /> },
+      { path: 'supply-chain', element: <SupplyChainPage /> },
       { path: 'admin', element: <AdminPage /> },
       { path: 'chatbot', element: <ChatbotPage /> },
       { path: '*', element: <NotFoundPage /> },
