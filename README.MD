@@ -1,1 +1,1 @@
-"# MedIntel" 
+# MedIntel
