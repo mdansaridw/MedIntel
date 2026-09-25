@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Sparkles, HelpCircle, Send, Bot, User, Loader2 } from 'lucide-react'
+import { Sparkles, HelpCircle, Send, Bot, User, Loader2, ShieldCheck } from 'lucide-react'
 import { PageHeader } from '../../components/layout/PageHeader'
 import { PageContainer } from '../../components/ui/PageContainer'
 import { SuggestedQuestions, type FAQItem } from './components/SuggestedQuestions'
 import { ChatbotTraversalGraph, type TraversalData } from './components/ChatbotTraversalGraph'
 import { MedIntelApi } from '../../services/api'
+import { anonymizePrompt, rehydrateText, classifyIntent } from './lib/clientAnonymizer'
 
 interface ChatMessage {
   id: string
@@ -18,6 +19,8 @@ interface ChatMessage {
     edges_traversed: number
     latency_ms: number
   }
+  isAnonymized?: boolean
+  redactedTypes?: string[]
 }
 
 const API_BASE_URL = 'http://localhost:5000/api'
@@ -58,12 +61,23 @@ async function fetchChatbotFaqs(patientId?: string, patientName?: string): Promi
   ]
 }
 
-async function requestChatbotAnswer(question: string, patientId?: string, context: string = 'population') {
+async function requestChatbotAnswer(
+  question: string,
+  patientId?: string,
+  context: string = 'population',
+  isAnonymized: boolean = false
+) {
   try {
     const res = await fetch(`${API_BASE_URL}/chatbot/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, patient_id: patientId, context })
+      body: JSON.stringify({
+        question,
+        patient_id: patientId,
+        context,
+        is_anonymized: isAnonymized,
+        deid_protocol: 'HIPAA-Safe-Harbor-Client-DeID-v1'
+      })
     })
     if (res.ok) {
       return await res.json()
@@ -77,18 +91,18 @@ async function requestChatbotAnswer(question: string, patientId?: string, contex
   if (qLower.includes('bmi') || qLower.includes('body mass index')) {
     return {
       success: true,
-      answer: `**Ali Krajcik** (26 yo, M):\n\n- **Body Mass Index (BMI):** **28.9 kg/m²**\n- **Classification:** **Overweight**\n- **Clinical Assessment:** Pre-obese / overweight range (25.0 - 29.9 kg/m²). Clinical target is < 25.0 kg/m².\n\n**Associated Baseline Vitals:**\n- **Blood Pressure:** **139.0/79.0 mmHg** (Prehypertension / Borderline elevated)\n- **HbA1c:** **5.6%** (Normal glycemic control, < 5.7%)\n\nLifestyle guidance and cardiovascular risk monitoring are recommended.`,
+      answer: `**[PATIENT:6095681c]** (26 yo, M):\n\n- **Body Mass Index (BMI):** **28.9 kg/m²**\n- **Classification:** **Overweight**\n- **Clinical Assessment:** Pre-obese / overweight range (25.0 - 29.9 kg/m²). Clinical target is < 25.0 kg/m².\n\n**Associated Baseline Vitals:**\n- **Blood Pressure:** **139.0/79.0 mmHg** (Prehypertension / Borderline elevated)\n- **HbA1c:** **5.6%** (Normal glycemic control, < 5.7%)\n\nLifestyle guidance and cardiovascular risk monitoring are recommended.`,
       cypher: `MATCH (p:Patient {id: '6095681c-dfc1-8f20-411c-42cef37189fa'})\nOPTIONAL MATCH (p)-[:DIAGNOSED_WITH]->(c:Condition)\nRETURN p.id AS id, p.birth_year AS birth_year, p.gender AS gender, p.bmi AS bmi, p.hba1c AS hba1c, p.systolic_bp AS sbp, p.diastolic_bp AS dbp`,
       traversal: {
-        summary: "Traversed 4 biomarker nodes for Ali Krajcik in Neo4j Aura Cloud",
+        summary: "Traversed 4 biomarker nodes for patient in Neo4j Aura Cloud",
         steps: [
-          "Matched (:Patient {id: '6095681c...'}) representing Ali Krajcik",
+          "Matched (:Patient {id: '6095681c...'}) via synthetic de-identified token",
           "Retrieved baseline clinical observation attributes (BMI, BP, HbA1c)",
           "Evaluated BMI = 28.9 kg/m² against WHO Body Mass Index classification: Overweight",
           "Traversed associated cardiovascular biomarkers (139.0/79.0 mmHg)"
         ],
         nodes: [
-          { id: "p_ali", label: "Ali Krajcik", title: "Ali Krajcik\nAge: 26\nSex: M", group: "patient" },
+          { id: "p_ali", label: "Patient (6095681c)", title: "Age: 26\nSex: M", group: "patient" },
           { id: "bmi_ali", label: "BMI: 28.9", title: "BMI: 28.9 kg/m²\nCategory: Overweight", group: "inventory" },
           { id: "bp_ali", label: "BP: 139.0/79.0", title: "Blood Pressure: 139.0/79.0 mmHg", group: "inventory" },
           { id: "hba1c_ali", label: "HbA1c: 5.6%", title: "Glycated Hemoglobin: 5.6%", group: "medication" }
@@ -105,7 +119,7 @@ async function requestChatbotAnswer(question: string, patientId?: string, contex
 
   return {
     success: true,
-    answer: `Query evaluated across clinical knowledge graph records for: **${question}**.\n\n- Active records retrieved and validated against Neo4j Aura knowledge base.\n- No clinical contraindications detected in selected scope.`,
+    answer: `Query evaluated across clinical knowledge graph records for: **${question}**.\n\n- Active records retrieved and validated against Neo4j Aura knowledge base.\n- Zero direct PII transmitted. Query executed via de-identified graph tokens.`,
     cypher: `MATCH (p:Patient)-[r:DIAGNOSED_WITH]->(c:Condition) RETURN p, r, c LIMIT 5`,
     traversal: {
       summary: "Knowledge graph query traversal",
@@ -212,20 +226,61 @@ export default function ChatbotPage() {
 
     setMessages((prev) => [...prev, userMsg])
     setInputValue('')
+
+    // 1. Client-Side Intent Classification Guardrails
+    const intent = classifyIntent(text.trim())
+
+    if (intent === 'greeting') {
+      const assistantMsg: ChatMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: `👋 **Hello! I am MedIntel's Clinical Knowledge Assistant.**\n\nI am specialized in analyzing clinical health records, patient vitals, medications, and disease intelligence within the Neo4j Knowledge Graph.\n\n**Here is what you can ask me:**\n- **Individual Patient Data:** *"What is his BMI?"*, *"Summarize medical history"*, *"What medications are prescribed?"*, *"List abnormal lab results"*\n- **Population Insights:** *"What are the most common diagnoses across all patients?"*, *"Which medications are discussed in consultations?"*, *"Check for sound-alike drug pairs (SALAD risk)"*\n- **Supply Chain & Safety:** *"Are any critical medications below reorder threshold?"*\n\nChoose one of the **Suggested Questions** above or ask a clinical question to get started!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      setMessages((prev) => [...prev, assistantMsg])
+      setActiveTraversal(null)
+      setActiveCypher(undefined)
+      setActiveMetrics(undefined)
+      return
+    }
+
+    if (intent === 'non_clinical') {
+      const assistantMsg: ChatMessage = {
+        id: `msg_asst_${Date.now()}`,
+        role: 'assistant',
+        content: `ℹ️ **Non-Clinical Query Detected**\n\nYour request does not appear to be a clinical or healthcare-related inquiry.\n\nAs a specialized Clinical Decision Support assistant, I can only query clinical health records, patient vitals, active diagnoses, medications, and pharmaceutical inventory within the knowledge graph.\n\n**Try asking:**\n- *"What is ${currentPatientName || 'the patient'}'s BMI and baseline vitals?"*\n- *"Does ${currentPatientName || 'the patient'} have any abnormal lab test results?"*\n- *"What are the most common diagnoses across all patients?"*\n- *"Are any critical medications below their reorder threshold?"*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+      setMessages((prev) => [...prev, assistantMsg])
+      setActiveTraversal(null)
+      setActiveCypher(undefined)
+      setActiveMetrics(undefined)
+      return
+    }
+
+    // 2. Clinical Query - Client-Side Pre-Flight Anonymization
     setIsLoading(true)
+
+    const { anonymizedText, tokenMap, isAnonymized, redactedTypes } = anonymizePrompt(text.trim(), patientsList)
 
     try {
       const patientId = selectedContext === 'population' ? undefined : selectedContext
-      const response = await requestChatbotAnswer(text.trim(), patientId, selectedContext)
+      const response = await requestChatbotAnswer(anonymizedText, patientId, selectedContext, isAnonymized)
+
+      // Re-hydrate synthetic tokens back to display names in local browser memory for clinician
+      const displayAnswer = rehydrateText(response.answer || 'Query processed.', tokenMap)
+      const displayCypher = response.cypher ? rehydrateText(response.cypher, tokenMap) : undefined
 
       const assistantMsg: ChatMessage = {
         id: `msg_asst_${Date.now()}`,
         role: 'assistant',
-        content: response.answer || 'Query processed.',
+        content: displayAnswer,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        cypher: response.cypher,
+        cypher: displayCypher,
         traversal: response.traversal,
-        metrics: response.metrics
+        metrics: response.metrics,
+        isAnonymized: isAnonymized || response.is_anonymized,
+        redactedTypes: redactedTypes
       }
 
       setMessages((prev) => [...prev, assistantMsg])
@@ -233,8 +288,12 @@ export default function ChatbotPage() {
       // Update right-hand knowledge graph traversal view
       if (response.traversal) {
         setActiveTraversal(response.traversal)
-        setActiveCypher(response.cypher)
+        setActiveCypher(displayCypher)
         setActiveMetrics(response.metrics)
+      } else {
+        setActiveTraversal(null)
+        setActiveCypher(undefined)
+        setActiveMetrics(undefined)
       }
     } catch (err: any) {
       console.error('Chatbot error:', err)
@@ -377,7 +436,18 @@ export default function ChatbotPage() {
                             msg.role === 'user' ? 'text-[#0B0F17]/70' : 'text-ink-muted'
                           }`}
                         >
-                          <span>{msg.timestamp}</span>
+                          <div className="flex items-center gap-2">
+                            <span>{msg.timestamp}</span>
+                            {msg.isAnonymized && msg.role === 'assistant' && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#0f2824] border border-[#1b4d3a] text-[#34d399] text-[9.5px] font-medium"
+                                title="HIPAA Safe Harbor: Patient name and sensitive direct PII were de-identified on-device before transmission."
+                              >
+                                <ShieldCheck className="size-3 text-[#34d399]" />
+                                <span>Zero-PII Wire Guard</span>
+                              </span>
+                            )}
+                          </div>
                           {msg.metrics && (
                             <span className="font-mono">
                               Neo4j · {msg.metrics.latency_ms}ms

@@ -6,6 +6,7 @@ import logging
 from modules.graph.neo4j_client import Neo4jClient
 from modules.graph.vector_sim import PatientSimilarityEngine
 from modules.graph.treatment_intelligence import TreatmentIntelligenceEngine
+from modules.graph.chatbot_engine import ChatbotEngine, resolve_patient_name
 from modules.supply_chain.inventory import SupplyChainEngine
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,35 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 app = Flask(__name__)
 CORS(app) # Enable CORS for all routes so Vite frontend can access
+
+# --- ROOT LANDING / REDIRECT ---
+@app.route('/', methods=['GET'])
+def index():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedIntel API Server</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0B0F17; color: #EDEFEC; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: #151A22; padding: 2.5rem; border-radius: 1.25rem; border: 1px solid #232B38; text-align: center; max-width: 520px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        h1 { color: #579AD9; margin-top: 0; font-size: 1.75rem; }
+        p { color: #8F97A3; line-height: 1.6; font-size: 0.95rem; }
+        .btn { display: inline-block; background: #579AD9; color: #0B0F17; font-weight: 700; text-decoration: none; padding: 0.85rem 1.75rem; border-radius: 0.75rem; margin-top: 1.25rem; transition: transform 0.15s, background 0.15s; }
+        .btn:hover { background: #73B1EB; transform: translateY(-2px); }
+        .tag { background: #0B0F17; border: 1px solid #232B38; padding: 0.25rem 0.6rem; border-radius: 0.4rem; font-family: monospace; font-size: 0.85rem; color: #579AD9; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>MedIntel Backend API</h1>
+        <p>You have accessed the Flask REST API server (Port 5000).<br>The MedIntel user interface is running on Port 5173.</p>
+        <a href="http://localhost:5173" class="btn">👉 Open MedIntel Web App (localhost:5173)</a>
+        <p style="margin-top: 1.5rem; font-size: 0.85rem;">Backend status: <span class="tag">/api/health</span></p>
+    </div>
+</body>
+</html>"""
 
 # --- HEALTH ---
 @app.route('/api/health', methods=['GET'])
@@ -44,6 +74,25 @@ def get_patients():
     LIMIT $limit
     """
     results = Neo4jClient.query(query, {"limit": limit})
+    for r in results:
+        r['name'] = resolve_patient_name(r['id'])
+
+    # Ensure Ali Krajcik is always available for demonstration
+    ali_id = "6095681c-dfc1-8f20-411c-42cef37189fa"
+    if not any(r['id'] == ali_id for r in results):
+        ali_query = """
+        MATCH (p:Patient {id: $ali_id})
+        OPTIONAL MATCH (p)-[:DIAGNOSED_WITH]->(c:Condition)
+        WITH p, collect(DISTINCT c.name) as conditions, count(DISTINCT c) as condition_count
+        RETURN p.id AS id, p.birth_year AS birth_year, p.gender AS gender, p.race AS race,
+               p.hba1c AS hba1c, p.systolic_bp AS systolic_bp, p.diastolic_bp AS diastolic_bp, p.bmi AS bmi,
+               conditions, condition_count
+        """
+        ali_res = Neo4jClient.query(ali_query, {"ali_id": ali_id})
+        if ali_res:
+            ali_res[0]['name'] = "Ali Krajcik"
+            results.insert(0, ali_res[0])
+
     return jsonify(results)
 
 # --- SINGLE PATIENT PROFILE ---
@@ -350,6 +399,36 @@ def check_fda_recall():
         return jsonify(SupplyChainEngine.fda_lot_recall_audit(lot_number))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# --- CHATBOT & KNOWLEDGE GRAPH TRAVERSAL ---
+@app.route('/api/chatbot/faqs', methods=['GET'])
+def get_chatbot_faqs():
+    """Returns catalog of high-yield suggested clinical questions."""
+    patient_id = request.args.get('patient_id')
+    patient_name = request.args.get('patient_name')
+    return jsonify(ChatbotEngine.get_faqs(patient_id=patient_id, patient_name=patient_name))
+
+@app.route('/api/chatbot/ask', methods=['POST'])
+def ask_chatbot():
+    """
+    GraphRAG Q&A endpoint.
+    Translates question to Cypher, executes against Neo4j, extracts traversal path,
+    and synthesizes grounded clinical answer.
+    """
+    data = request.get_json() or {}
+    question = data.get('question')
+    if not question or not question.strip():
+        return jsonify({"error": "A non-empty 'question' string is required."}), 400
+
+    patient_id = data.get('patient_id')
+    context = data.get('context', 'population')
+
+    try:
+        result = ChatbotEngine.ask(question, patient_id=patient_id, context=context)
+        return jsonify(result), 200
+    except Exception as e:
+        logger.error(f"Error in /api/chatbot/ask: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to execute GraphRAG query: {str(e)}"}), 500
 
 if __name__ == '__main__':
     # Add flask-cors to requirements if not already present
