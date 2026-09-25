@@ -1,10 +1,11 @@
 import { PageHeader } from '../../components/layout/PageHeader'
+import { CapsuleScrollHero } from './components/CapsuleScrollHero'
 
 export default function HomePage() {
   return (
     <>
       <PageHeader />
-      <div className="min-h-[calc(100vh-5rem)]" />
+      <CapsuleScrollHero />
     </>
   )
 }
