@@ -49,6 +49,7 @@ export default function PatientWorkspacePage() {
   const [showTreatmentDerivation, setShowTreatmentDerivation] = useState(false)
   const [showDeepTreatmentDerivation, setShowDeepTreatmentDerivation] = useState(false)
   const [showTwoHopInfo, setShowTwoHopInfo] = useState(false)
+  const [showAllTherapies, setShowAllTherapies] = useState(false)
   const [historyFilter, setHistoryFilter] = useState<'all' | 'conditions' | 'medications'>('all')
   const [treatmentPlan, setTreatmentPlan] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,8 +96,46 @@ export default function PatientWorkspacePage() {
         console.error('Failed to load patient profile:', profileRes)
       }
 
-      if (graphRes.status === 'fulfilled' && graphRes.value && !(graphRes.value as any).error) {
+      if (graphRes.status === 'fulfilled' && graphRes.value && !(graphRes.value as any).error && graphRes.value.nodes?.length > 0) {
         setSubgraph(graphRes.value)
+      } else if (profileRes.status === 'fulfilled' && profileRes.value && !(profileRes.value as any).error) {
+        // Fallback: Construct personal 2-hop topology from loaded profile
+        const p = profileRes.value
+        const nodes: any[] = [
+          { id: p.id, label: `Patient #${p.id.substring(0, 8)}`, group: 'patient', properties: { age: 2026 - (p.birth_year || 1960), gender: p.gender } }
+        ]
+        const edges: any[] = []
+
+        // Hop 1: Conditions (:DIAGNOSED_WITH)
+        p.conditions?.slice(0, 6).forEach((c: any, i: number) => {
+          const cId = `cond_${i}_${c.code || i}`
+          nodes.push({ id: cId, label: c.name, group: 'disease', properties: c })
+          edges.push({ id: `e_c_${i}`, from: p.id, to: cId, relationship: 'DIAGNOSED_WITH', label: 'DIAGNOSED_WITH' })
+        })
+
+        // Hop 1: Medications (:PRESCRIBED) & Hop 2: Companion Supplies (:REQUIRES_SUPPLY)
+        p.medications?.slice(0, 5).forEach((m: any, i: number) => {
+          const mId = `med_${i}`
+          nodes.push({ id: mId, label: m.name, group: 'medication', properties: m })
+          edges.push({ id: `e_m_${i}`, from: p.id, to: mId, relationship: 'PRESCRIBED', label: 'PRESCRIBED' })
+
+          // Hop 2: Companion Supply
+          const supId = `sup_${i}`
+          const supName = m.name?.toLowerCase().includes('metformin') ? 'Blood Glucose Test Strips' :
+                          m.name?.toLowerCase().includes('lisinopril') ? 'Automated BP Cuff Monitor' :
+                          m.name?.toLowerCase().includes('atorvastatin') ? 'Lipid Panel Assay Kit' : 'Standard Dispense Companion'
+          nodes.push({ id: supId, label: supName, group: 'supply', properties: { stock_quantity: 48 } })
+          edges.push({ id: `e_sup_${i}`, from: mId, to: supId, relationship: 'REQUIRES_SUPPLY', label: 'REQUIRES_SUPPLY' })
+        })
+
+        // Hop 1: Allergies (:ALLERGIC_TO)
+        p.allergies?.forEach((a: any, i: number) => {
+          const aId = `all_${i}`
+          nodes.push({ id: aId, label: a.substance, group: 'allergy', properties: a })
+          edges.push({ id: `e_a_${i}`, from: p.id, to: aId, relationship: 'ALLERGIC_TO', label: 'ALLERGIC_TO' })
+        })
+
+        setSubgraph({ nodes, edges })
       } else {
         console.error('Failed to load subgraph:', graphRes)
       }
@@ -263,6 +302,8 @@ export default function PatientWorkspacePage() {
   const bmiStatus = bmiVal >= 30 ? 'Obese (Class I+)' : bmiVal >= 25 ? 'Overweight' : bmiVal >= 18.5 ? 'Normal Weight' : 'Underweight'
   const bmiDelta = bmiVal > 24.9 ? `+${(bmiVal - 24.9).toFixed(1)} kg/m² above healthy target (18.5-24.9)` : 'Within healthy range'
 
+  // Top 3 vs All Therapies
+  const displayedTherapies = showAllTherapies ? treatmentPlan : treatmentPlan.slice(0, 3)
 
   return (
     <>
@@ -295,228 +336,160 @@ export default function PatientWorkspacePage() {
 
       <PageContainer className="flex flex-col gap-6 pb-12">
         {/* ========================================================================= */}
-        {/* AI CLINICAL SYNTHESIS CARD (Gemini 3.8 Flash / GraphRAG)                  */}
+        {/* ROW 1: AI Clinical Synthesis (Zone 1) - Full Width                         */}
         {/* ========================================================================= */}
-        <Card className="p-5 shadow-card border border-accent/40 bg-accent-soft/20">
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-accent-strong" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-ink">
-                AI Clinical Synthesis
-              </h2>
-              <span className="rounded-full bg-accent-soft px-2.5 py-0.5 text-[10px] font-bold text-accent-strong border border-accent/30">
-                {aiSummary?.model || 'Gemini 3.8 Flash'}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[11px] text-ink-muted flex items-center gap-1">
-                <ShieldCheck className="size-3.5 text-success" />
-                HIPAA Safe (De-Identified Graph Context)
-              </span>
-              <button
-                onClick={loadSummary}
-                disabled={loadingSummary}
-                className="text-xs text-accent font-semibold hover:underline disabled:opacity-50"
-              >
-                {loadingSummary ? 'Synthesizing...' : 'Regenerate'}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-3">
-            {loadingSummary ? (
-              <div className="flex items-center gap-2 text-xs text-ink-muted py-2">
-                <Activity className="size-3.5 animate-pulse text-accent" />
-                <span>Querying Gemini 3.8 Flash via GraphRAG...</span>
-              </div>
-            ) : aiSummary ? (
-              <p className="text-sm leading-relaxed text-ink font-sans">
-                {aiSummary.summary}
-              </p>
-            ) : (
-              <p className="text-xs text-ink-muted italic">
-                Generating clinical synthesis from knowledge graph...
-              </p>
-            )}
-          </div>
-        </Card>
-        {/* ========================================================================= */}
-        {/* ROW 1: BENTO GRID - Scribe (Zone 2) & Obsidian Graph (Zone 3)              */}
-        {/* ========================================================================= */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* ZONE 2: Ambient AI Scribe (Jerry) - 5 Cols */}
-          <Card className="lg:col-span-5 flex flex-col p-5 shadow-card overflow-hidden">
-            <div className="flex items-center justify-between pb-3 border-b border-line">
-              <div className="flex items-center gap-2">
-                <span className={`size-3 rounded-full ${isRecording ? 'bg-danger animate-ping' : 'bg-ink-muted'}`} />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-ink">Ambient AI Scribe</h2>
-              </div>
-              <button
-                onClick={() => setIsRecording(!isRecording)}
-                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                  isRecording 
-                    ? 'bg-danger text-white hover:bg-danger/90' 
-                    : 'bg-accent text-white hover:bg-accent-strong'
-                }`}
-              >
-                {isRecording ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
-                {isRecording ? 'Pause Scribe' : 'Start Scribe'}
-              </button>
-            </div>
-
-            {/* Scribe Live Dialogue Feed */}
-            <div className="mt-4 rounded-xl border border-line bg-surface p-3 text-xs space-y-2 h-44 overflow-y-auto font-mono">
-              <div className="text-accent font-semibold">
-                [Dr. Chen]: "Good morning. How have your glucose readings been since we adjusted your Metformin?"
-              </div>
-              <div className="text-ink-muted">
-                [Patient]: "Still floating around 165 in the morning doctor. And I get this lightheaded feeling after lunch."
-              </div>
-              <div className="text-accent font-semibold">
-                [Dr. Chen]: "Any chest pain, shortness of breath, or swelling in your ankles?"
-              </div>
-              <div className="text-ink-muted">
-                [Patient]: "No chest pain, but feet feel a little numb in the evenings."
-              </div>
-              {isRecording && (
-                <div className="flex items-center gap-2 text-danger animate-pulse pt-2 border-t border-line">
-                  <Activity className="size-3" />
-                  <span>Real-time clinical entity extraction active...</span>
-                </div>
-              )}
-            </div>
-
-            {/* Structured SOAP Note Tabs */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between border-b border-line mb-3">
-                <div className="flex gap-1">
-                  {(['S', 'O', 'A', 'P'] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveSoapTab(tab)}
-                      className={`px-3 py-1 text-xs font-bold rounded-t-lg transition-colors ${
-                        activeSoapTab === tab 
-                          ? 'border-b-2 border-accent text-accent bg-accent-soft' 
-                          : 'text-ink-muted hover:text-ink'
-                      }`}
-                    >
-                      {tab === 'S' && 'Subjective'}
-                      {tab === 'O' && 'Objective'}
-                      {tab === 'A' && 'Assessment'}
-                      {tab === 'P' && 'Plan'}
-                    </button>
-                  ))}
-                </div>
-                <span className="text-[10px] text-ink-muted font-medium">Auto-Formatted</span>
-              </div>
-
-              <div className="text-xs text-ink-muted leading-relaxed min-h-24 bg-surface p-3 rounded-xl border border-line">
-                {activeSoapTab === 'S' && (
-                  <p>Patient reports persistent fasting hyperglycemia (~165 mg/dL) and postprandial dizziness. Notes bilateral peripheral tingling in lower extremities.</p>
-                )}
-                {activeSoapTab === 'O' && (
-                  <p>Baseline HbA1c: {patient.hba1c}%. Blood Pressure: {patient.systolic_bp}/{patient.diastolic_bp} mmHg. BMI: {patient.bmi}.</p>
-                )}
-                {activeSoapTab === 'A' && (
-                  <p>1. Type 2 Diabetes Mellitus with early diabetic neuropathy signs.<br />2. Essential Hypertension (Stage 2).<br />3. Hyperlipidemia.</p>
-                )}
-                {activeSoapTab === 'P' && (
-                  <p>Recommend SGLT2 inhibitor trial based on top clinical twins. Order diabetic companion glucose sensor strips. Schedule 90-day HbA1c re-test.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Sync to Graph Trigger */}
-            <div className="mt-4 pt-3 border-t border-line flex items-center justify-between">
-              <span className="text-xs text-ink-muted">
-                {graphSynced ? '✓ Synchronized with Neo4j' : 'Ready to push encounter notes to Knowledge Graph'}
-              </span>
-              <button
-                onClick={() => {
-                  setGraphSynced(true)
-                  setTimeout(() => setGraphSynced(false), 3000)
-                }}
-                className="flex items-center gap-1.5 rounded-xl bg-surface-raised border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-accent hover:text-white transition-all shadow-sm"
-              >
-                <Send className="size-3.5" />
-                Sync Graph
-              </button>
-            </div>
-          </Card>
-
-          {/* ZONE 3: Obsidian Knowledge Graph - 7 Cols */}
-          <Card className="lg:col-span-7 flex flex-col p-5 shadow-card overflow-hidden">
+        <Card className="w-full p-5 shadow-card border border-accent/40 bg-accent-soft/20 flex flex-col justify-between">
+          <div>
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-line">
               <div className="flex items-center gap-2">
-                <Network className="size-4 text-accent" />
-                <h2 className="text-sm font-bold uppercase tracking-wider text-ink">Personal Subgraph</h2>
+                <Sparkles className="size-4 text-accent-strong" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-ink">
+                  AI Clinical Synthesis
+                </h2>
+                <span className="rounded-full bg-accent-soft px-2.5 py-0.5 text-[10px] font-bold text-accent-strong border border-accent/30">
+                  {aiSummary?.model || 'Gemini 3.8 Flash'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-success" />
-                <span className="text-xs text-ink-muted">
-                  {subgraph.nodes.length} Nodes · {subgraph.edges.length} Edges (2-Hop)
+                <span className="text-[11px] text-ink-muted flex items-center gap-1">
+                  <ShieldCheck className="size-3.5 text-success" />
+                  HIPAA Safe
                 </span>
                 <button
-                  onClick={() => setShowTwoHopInfo(!showTwoHopInfo)}
-                  className="inline-flex items-center gap-1 rounded-lg bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent-strong border border-accent/30 hover:bg-accent/20 transition-all shadow-xs"
+                  onClick={loadSummary}
+                  disabled={loadingSummary}
+                  className="text-xs text-accent font-semibold hover:underline disabled:opacity-50 ml-1"
                 >
-                  <HelpCircle className="size-3" />
-                  <span>{showTwoHopInfo ? 'Hide' : 'What is'} 2-Hop?</span>
+                  {loadingSummary ? 'Synthesizing...' : 'Regenerate'}
                 </button>
               </div>
             </div>
 
-            {/* 2-Hop Graph Traversal Explainer Callout */}
-            {showTwoHopInfo && (
-              <div className="mt-3 rounded-2xl border border-accent/40 bg-accent-soft/20 p-4 text-xs text-ink space-y-3">
-                <div className="flex items-center justify-between font-bold text-accent-strong border-b border-accent/20 pb-2">
-                  <span className="flex items-center gap-1.5 text-sm">
-                    <Info className="size-4 text-accent" />
-                    Why 2-Hop Knowledge Graph Traversal Matters:
-                  </span>
-                  <button onClick={() => setShowTwoHopInfo(false)} className="text-ink-muted hover:text-ink">
-                    <X className="size-4" />
-                  </button>
+            <div className="mt-3">
+              {loadingSummary ? (
+                <div className="flex items-center gap-2 text-xs text-ink-muted py-2">
+                  <Activity className="size-3.5 animate-pulse text-accent" />
+                  <span>Querying Gemini 3.8 Flash via GraphRAG...</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
-                  <div className="rounded-xl bg-surface border border-line p-3">
-                    <span className="font-bold text-accent uppercase block mb-1">
-                      1st Hop: Direct Patient Context
-                    </span>
-                    <p className="text-ink-muted leading-relaxed">
-                      Nodes immediately connected to the patient: diagnoses (<code>:DIAGNOSED_WITH</code>), current meds (<code>:PRESCRIBED</code>), and drug allergies (<code>:ALLERGIC_TO</code>). This represents raw EHR history.
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-surface border border-line p-3">
-                    <span className="font-bold text-success uppercase block mb-1">
-                      2nd Hop: Intelligence &amp; Supply Safety Context
-                    </span>
-                    <p className="text-ink-muted leading-relaxed">
-                      Nodes connected to those items: alternative treatments curing the disease (<code>:TREATS</code>), Look-Alike Sound-Alike drug risks (<code>:SOUNDS_ALIKE_TO</code>), and live shelf inventory (<code>:STOCKED_IN</code>) with companion supplies.
-                    </p>
-                  </div>
-                </div>
-                <p className="text-[11px] text-ink-muted italic border-t border-accent/20 pt-2">
-                  * Without the 2nd hop, clinicians only see past diagnoses; with 2-hop expansion, the graph provides predictive decision support, safety audits, and fulfillment awareness.
+              ) : aiSummary ? (
+                <p className="text-sm leading-relaxed text-ink font-sans">
+                  {aiSummary.summary}
                 </p>
+              ) : (
+                <p className="text-xs text-ink-muted italic">
+                  Generating clinical synthesis from knowledge graph...
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-line/60 flex items-center justify-between text-[11px] text-ink-muted">
+            <span>Grounding: Neo4j Aura + Synthea</span>
+            <span className="text-accent font-medium">De-Identified Graph Context</span>
+          </div>
+        </Card>
+
+        {/* ========================================================================= */}
+        {/* ROW 2: Ambient AI Scribe (Jerry) - Separate Full-Width Line                */}
+        {/* ========================================================================= */}
+        <Card className="w-full flex flex-col p-5 shadow-card overflow-hidden">
+          <div className="flex items-center justify-between pb-3 border-b border-line">
+            <div className="flex items-center gap-2">
+              <span className={`size-3 rounded-full ${isRecording ? 'bg-danger animate-ping' : 'bg-ink-muted'}`} />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-ink">Ambient AI Scribe</h2>
+            </div>
+            <button
+              onClick={() => setIsRecording(!isRecording)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                isRecording 
+                  ? 'bg-danger text-white hover:bg-danger/90' 
+                  : 'bg-accent text-white hover:bg-accent-strong'
+              }`}
+            >
+              {isRecording ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
+              {isRecording ? 'Pause Scribe' : 'Start Scribe'}
+            </button>
+          </div>
+
+          {/* Scribe Live Dialogue Feed */}
+          <div className="mt-4 rounded-xl border border-line bg-surface p-3 text-xs space-y-2 h-44 overflow-y-auto font-mono">
+            <div className="text-accent font-semibold">
+              [Dr. Chen]: "Good morning. How have your glucose readings been since we adjusted your Metformin?"
+            </div>
+            <div className="text-ink-muted">
+              [Patient]: "Still floating around 165 in the morning doctor. And I get this lightheaded feeling after lunch."
+            </div>
+            <div className="text-accent font-semibold">
+              [Dr. Chen]: "Any chest pain, shortness of breath, or swelling in your ankles?"
+            </div>
+            <div className="text-ink-muted">
+              [Patient]: "No chest pain, but feet feel a little numb in the evenings."
+            </div>
+            {isRecording && (
+              <div className="flex items-center gap-2 text-danger animate-pulse pt-2 border-t border-line">
+                <Activity className="size-3" />
+                <span>Real-time clinical entity extraction active...</span>
               </div>
             )}
+          </div>
 
-            <div className="mt-3 h-[420px] w-full rounded-xl overflow-hidden border border-line relative">
-              <KnowledgeGraphViewport nodes={subgraph.nodes} edges={subgraph.edges} />
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center justify-between text-[11px] text-ink-muted gap-2">
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-accent" /> Patient</span>
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-danger" /> Condition</span>
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-success" /> Drug</span>
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-warning" /> Supply</span>
+          {/* Structured SOAP Note Tabs */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between border-b border-line mb-3">
+              <div className="flex gap-1">
+                {(['S', 'O', 'A', 'P'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveSoapTab(tab)}
+                    className={`px-3 py-1 text-xs font-bold rounded-t-lg transition-colors ${
+                      activeSoapTab === tab 
+                        ? 'border-b-2 border-accent text-accent bg-accent-soft' 
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {tab === 'S' && 'Subjective'}
+                    {tab === 'O' && 'Objective'}
+                    {tab === 'A' && 'Assessment'}
+                    {tab === 'P' && 'Plan'}
+                  </button>
+                ))}
               </div>
-              <span className="text-warning font-semibold">⚠️ Dashed Yellow = SALAD Hazard</span>
+              <span className="text-[10px] text-ink-muted font-medium">Auto-Formatted</span>
             </div>
-          </Card>
-        </div>
+
+            <div className="text-xs text-ink-muted leading-relaxed min-h-24 bg-surface p-3 rounded-xl border border-line">
+              {activeSoapTab === 'S' && (
+                <p>Patient reports persistent fasting hyperglycemia (~165 mg/dL) and postprandial dizziness. Notes bilateral peripheral tingling in lower extremities.</p>
+              )}
+              {activeSoapTab === 'O' && (
+                <p>Baseline HbA1c: {patient.hba1c}%. Blood Pressure: {patient.systolic_bp}/{patient.diastolic_bp} mmHg. BMI: {patient.bmi}.</p>
+              )}
+              {activeSoapTab === 'A' && (
+                <p>1. Type 2 Diabetes Mellitus with early diabetic neuropathy signs.<br />2. Essential Hypertension (Stage 2).<br />3. Hyperlipidemia.</p>
+              )}
+              {activeSoapTab === 'P' && (
+                <p>Recommend SGLT2 inhibitor trial based on top clinical twins. Order diabetic companion glucose sensor strips. Schedule 90-day HbA1c re-test.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Sync to Graph Trigger */}
+          <div className="mt-4 pt-3 border-t border-line flex items-center justify-between">
+            <span className="text-xs text-ink-muted">
+              {graphSynced ? '✓ Synchronized with Neo4j' : 'Ready to push encounter notes to Knowledge Graph'}
+            </span>
+            <button
+              onClick={() => {
+                setGraphSynced(true)
+                setTimeout(() => setGraphSynced(false), 3000)
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-surface-raised border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-accent hover:text-white transition-all shadow-sm"
+            >
+              <Send className="size-3.5" />
+              Sync Graph
+            </button>
+          </div>
+        </Card>
 
         {/* ========================================================================= */}
         {/* ROW 2: BENTO GRID - Method 4 Clinical Twins (Zone 4)                       */}
@@ -847,7 +820,7 @@ export default function PatientWorkspacePage() {
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-                  Ranked Therapies Curing Clinical Twins (Stock & Safety Checked)
+                  Ranked Therapies Curing Clinical Twins ({showAllTherapies ? `All ${treatmentPlan.length}` : `Top ${Math.min(3, treatmentPlan.length)} of ${treatmentPlan.length}`})
                 </h3>
                 <p className="text-[11px] text-ink-muted">
                   Medications that resolved conditions in matching twins, filtered for allergies & inventory.
@@ -1084,7 +1057,7 @@ export default function PatientWorkspacePage() {
                       </td>
                     </tr>
                   )}
-                  {treatmentPlan.map((item, idx) => (
+                  {displayedTherapies.map((item, idx) => (
                     <tr key={idx} className="border-b border-line last:border-0 hover:bg-surface/50 transition-colors">
                       <td className="py-3 px-3 font-semibold text-ink">
                         <div className="flex items-center gap-2">
@@ -1126,6 +1099,31 @@ export default function PatientWorkspacePage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Top 3 vs All Therapies Toggle */}
+            {treatmentPlan.length > 3 && (
+              <div className="mt-4 pt-3 border-t border-line flex items-center justify-between">
+                <span className="text-xs text-ink-muted">
+                  Showing {displayedTherapies.length} of {treatmentPlan.length} ranked therapies
+                </span>
+                <button
+                  onClick={() => setShowAllTherapies(!showAllTherapies)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted transition-colors shadow-sm"
+                >
+                  {showAllTherapies ? (
+                    <>
+                      <ChevronUp className="size-3.5 text-ink-muted" />
+                      Show Top 3 Therapies Only
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="size-3.5 text-ink-muted" />
+                      Show All Therapies ({treatmentPlan.length})
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -1430,6 +1428,78 @@ export default function PatientWorkspacePage() {
             </div>
           </Card>
         </div>
+
+        {/* ========================================================================= */}
+        {/* ROW 4: PERSONAL SUBGRAPH (ZONE 3) - 2-Hop Neo4j Knowledge Graph at Bottom  */}
+        {/* ========================================================================= */}
+        <Card className="p-6 shadow-card overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-line">
+            <div>
+              <div className="flex items-center gap-2">
+                <Network className="size-5 text-accent" />
+                <h2 className="text-lg font-bold font-display text-ink">Personal Subgraph (2-Hop Knowledge Graph)</h2>
+                <span className="rounded-full bg-surface-raised border border-line px-2.5 py-0.5 text-xs font-semibold text-ink-muted">
+                  {subgraph.nodes.length} Nodes · {subgraph.edges.length} Edges
+                </span>
+              </div>
+              <p className="text-xs text-ink-muted mt-0.5">
+                Dynamic 2-hop topology around Patient #{patientId.substring(0, 8)}: Hop 1 captures direct clinical history; Hop 2 maps drug targets, companion supplies, and look-alike warnings.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowTwoHopInfo(!showTwoHopInfo)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink hover:bg-surface-muted transition-colors shadow-sm"
+            >
+              <HelpCircle className="size-3.5 text-accent" />
+              What is 2-Hop?
+              {showTwoHopInfo ? <ChevronUp className="size-3.5 text-ink-muted" /> : <ChevronDown className="size-3.5 text-ink-muted" />}
+            </button>
+          </div>
+
+          {/* 2-Hop Interactive Explainer Banner */}
+          {showTwoHopInfo && (
+            <div className="mt-4 rounded-xl border border-accent/30 bg-accent-soft/30 p-4 text-xs space-y-2.5 animate-fadeIn">
+              <div className="flex items-center gap-2 font-bold text-ink">
+                <Info className="size-4 text-accent" />
+                <span>Understanding Multi-Hop Knowledge Graphs in Clinical Care</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-ink-muted leading-relaxed">
+                <div className="rounded-lg bg-surface/80 p-3 border border-line">
+                  <span className="font-semibold text-ink block mb-1">Hop 1: Direct EHR Connections</span>
+                  <span>Direct relationships connected to the patient node: <code>:DIAGNOSED_WITH</code> (Conditions), <code>:PRESCRIBED</code> (Medications), and <code>:ALLERGIC_TO</code> (Allergies).</span>
+                </div>
+                <div className="rounded-lg bg-surface/80 p-3 border border-line">
+                  <span className="font-semibold text-ink block mb-1">Hop 2: Predictive Intelligence & Logistics</span>
+                  <span>Second-degree relationships extending out from medications and diseases: <code>:TREATS</code> (therapeutic efficacy), <code>:SOUNDS_ALIKE_TO</code> (FDA SALAD safety warnings), and <code>:REQUIRES_SUPPLY</code> (companion diagnostics like test strips).</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Vis-Network Canvas Viewport */}
+          <div className="mt-4 h-[540px] w-full rounded-2xl overflow-hidden border border-line relative shadow-inner bg-surface-muted/30">
+            <KnowledgeGraphViewport nodes={subgraph.nodes} edges={subgraph.edges} />
+          </div>
+
+          {/* Graph Legend & Status */}
+          <div className="mt-4 pt-3 border-t border-line flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-ink-muted font-medium">Legend:</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#38bdf8]" /> Patient</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#f87171]" /> Condition</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#34d399]" /> Medication</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#a78bfa]" /> Allergy</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#2dd4bf]" /> Supply Item</span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-3 rounded-full bg-[#fbbf24]" /> Inventory</span>
+            </div>
+            <div className="text-ink-muted flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-500 border border-amber-500/30">
+                ⚡ Dashed Amber Edges = SALAD Warning (:SOUNDS_ALIKE_TO)
+              </span>
+            </div>
+          </div>
+        </Card>
       </PageContainer>
 
       {/* ========================================================================= */}

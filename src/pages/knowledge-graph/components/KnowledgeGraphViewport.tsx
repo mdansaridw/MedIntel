@@ -219,12 +219,17 @@ export function KnowledgeGraphViewport({ nodes, edges }: KnowledgeGraphViewportP
         </button>
       </div>
 
-      {(nodes.length === 0 || isLoading) && (
+      {isLoading ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-xs text-ink-muted bg-surface/80 backdrop-blur-xs">
           <Activity className="size-6 text-accent mb-2 animate-pulse" />
           <span>Connecting to Neo4j Aura & extracting 2-hop clinical subgraph...</span>
         </div>
-      )}
+      ) : nodes.length === 0 ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-xs text-ink-muted bg-surface/80 backdrop-blur-xs">
+          <Activity className="size-6 text-ink-muted mb-2" />
+          <span>No subgraph entities found for this patient in the knowledge graph.</span>
+        </div>
+      ) : null}
 
       <InspectorDrawer 
         isOpen={!!selectedEntity} 
