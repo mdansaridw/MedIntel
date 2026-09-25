@@ -7,6 +7,7 @@ from modules.graph.neo4j_client import Neo4jClient
 from modules.graph.vector_sim import PatientSimilarityEngine
 from modules.graph.treatment_intelligence import TreatmentIntelligenceEngine
 from modules.graph.chatbot_engine import ChatbotEngine, resolve_patient_name
+from modules.graph.admin_engine import AdminEngine
 from modules.supply_chain.inventory import SupplyChainEngine
 
 logger = logging.getLogger(__name__)
@@ -429,6 +430,49 @@ def ask_chatbot():
     except Exception as e:
         logger.error(f"Error in /api/chatbot/ask: {e}", exc_info=True)
         return jsonify({"error": f"Failed to execute GraphRAG query: {str(e)}"}), 500
+
+# --- ADMIN PANEL & HIPAA GOVERNANCE ---
+@app.route('/api/admin/stats', methods=['GET'])
+def get_admin_stats():
+    """Returns live telemetry, node counts, and Two-Vault compliance indicators."""
+    try:
+        return jsonify(AdminEngine.get_system_stats()), 200
+    except Exception as e:
+        logger.error(f"Error fetching admin stats: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/admin/audit-logs', methods=['GET'])
+def get_admin_audit_logs():
+    """Returns Break-Glass, Wire-Guard, and security audit logs."""
+    log_type = request.args.get('type')
+    try:
+        return jsonify(AdminEngine.get_audit_logs(log_type=log_type)), 200
+    except Exception as e:
+        logger.error(f"Error fetching audit logs: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/admin/salad-rules', methods=['GET'])
+def get_admin_salad_rules():
+    """Returns active Sound-Alike Look-Alike Drug rules with phonetic scores."""
+    try:
+        return jsonify(AdminEngine.get_salad_rules()), 200
+    except Exception as e:
+        logger.error(f"Error fetching SALAD rules: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/admin/quarantine', methods=['POST'])
+def quarantine_admin_lot():
+    """Toggles or sets quarantine status on a recalled pharmacy batch."""
+    data = request.get_json(silent=True) or {}
+    lot_number = data.get('lot_number') or request.args.get('lot_number') or request.form.get('lot_number')
+    if not lot_number:
+        return jsonify({"error": "lot_number is required"}), 400
+    try:
+        res = AdminEngine.quarantine_lot(lot_number)
+        return jsonify(res), 200
+    except Exception as e:
+        logger.error(f"Error setting quarantine: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # Add flask-cors to requirements if not already present

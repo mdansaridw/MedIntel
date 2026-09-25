@@ -12,6 +12,8 @@ class Config:
     NEO4J_URI = os.getenv("NEO4J_URI", "neo4j+s://localhost:7687")
     NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
     NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
+    NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+    AURA_INSTANCEID = os.getenv("AURA_INSTANCEID", "8581f5dc")
     
     # Security
     VAULT_ENCRYPTION_KEY = os.getenv("VAULT_ENCRYPTION_KEY", "bWVkaXN5bmFwc2Utc2VjcmV0LWtleS0zMi1ieXRlcwo=")
