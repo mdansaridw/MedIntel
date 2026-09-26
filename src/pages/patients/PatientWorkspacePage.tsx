@@ -17,14 +17,13 @@ import {
   Info,
   Layers,
   Mic,
-  MicOff,
   Network,
   Pill,
-  Send,
   ShieldAlert,
   ShieldCheck,
   Sliders,
   Sparkles,
+  Stethoscope,
   UserCheck,
   X
 } from 'lucide-react'
@@ -33,6 +32,7 @@ import { PageContainer } from '../../components/ui/PageContainer'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { KnowledgeGraphViewport } from '../knowledge-graph/components/KnowledgeGraphViewport'
+import { ScribeStudioModal } from './components/ScribeStudioModal'
 import { MedIntelApi } from '../../services/api'
 
 export default function PatientWorkspacePage() {
@@ -63,10 +63,8 @@ export default function PatientWorkspacePage() {
   const [decryptedPii, setDecryptedPii] = useState<any>(null)
   const [decrypting, setDecrypting] = useState(false)
 
-  // Scribe Simulator State
-  const [isRecording, setIsRecording] = useState(false)
-  const [activeSoapTab, setActiveSoapTab] = useState<'S' | 'O' | 'A' | 'P'>('S')
-  const [graphSynced, setGraphSynced] = useState(false)
+  // Scribe Studio HITL Modal State
+  const [isScribeStudioOpen, setIsScribeStudioOpen] = useState(false)
 
   // Load AI Summary
   const loadSummary = () => {
@@ -79,7 +77,7 @@ export default function PatientWorkspacePage() {
   }
 
   // Load Data
-  useEffect(() => {
+  const loadPatientData = () => {
     if (!patientId) return
     setLoading(true)
 
@@ -150,6 +148,10 @@ export default function PatientWorkspacePage() {
       }
     }).catch(console.error)
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadPatientData()
   }, [patientId])
 
   // Handle Break-Glass Decryption
@@ -390,104 +392,71 @@ export default function PatientWorkspacePage() {
         </Card>
 
         {/* ========================================================================= */}
-        {/* ROW 2: Ambient AI Scribe (Jerry) - Separate Full-Width Line                */}
+        {/* ROW 2: Ambient AI Scribe - HITL Physician Staging Gateway                  */}
         {/* ========================================================================= */}
-        <Card className="w-full flex flex-col p-5 shadow-card overflow-hidden">
-          <div className="flex items-center justify-between pb-3 border-b border-line">
-            <div className="flex items-center gap-2">
-              <span className={`size-3 rounded-full ${isRecording ? 'bg-danger animate-ping' : 'bg-ink-muted'}`} />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-ink">Ambient AI Scribe</h2>
-            </div>
-            <button
-              onClick={() => setIsRecording(!isRecording)}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                isRecording 
-                  ? 'bg-danger text-white hover:bg-danger/90' 
-                  : 'bg-accent text-white hover:bg-accent-strong'
-              }`}
-            >
-              {isRecording ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
-              {isRecording ? 'Pause Scribe' : 'Start Scribe'}
-            </button>
-          </div>
-
-          {/* Scribe Live Dialogue Feed */}
-          <div className="mt-4 rounded-xl border border-line bg-surface p-3 text-xs space-y-2 h-44 overflow-y-auto font-mono">
-            <div className="text-accent font-semibold">
-              [Dr. Chen]: "Good morning. How have your glucose readings been since we adjusted your Metformin?"
-            </div>
-            <div className="text-ink-muted">
-              [Patient]: "Still floating around 165 in the morning doctor. And I get this lightheaded feeling after lunch."
-            </div>
-            <div className="text-accent font-semibold">
-              [Dr. Chen]: "Any chest pain, shortness of breath, or swelling in your ankles?"
-            </div>
-            <div className="text-ink-muted">
-              [Patient]: "No chest pain, but feet feel a little numb in the evenings."
-            </div>
-            {isRecording && (
-              <div className="flex items-center gap-2 text-danger animate-pulse pt-2 border-t border-line">
-                <Activity className="size-3" />
-                <span>Real-time clinical entity extraction active...</span>
+        <Card className="w-full p-5 shadow-card overflow-hidden border-accent/20 bg-gradient-to-r from-surface to-accent/5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-line">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shadow-sm">
+                <Mic className="size-5 animate-pulse text-accent" />
               </div>
-            )}
-          </div>
-
-          {/* Structured SOAP Note Tabs */}
-          <div className="mt-4">
-            <div className="flex items-center justify-between border-b border-line mb-3">
-              <div className="flex gap-1">
-                {(['S', 'O', 'A', 'P'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveSoapTab(tab)}
-                    className={`px-3 py-1 text-xs font-bold rounded-t-lg transition-colors ${
-                      activeSoapTab === tab 
-                        ? 'border-b-2 border-accent text-accent bg-accent-soft' 
-                        : 'text-ink-muted hover:text-ink'
-                    }`}
-                  >
-                    {tab === 'S' && 'Subjective'}
-                    {tab === 'O' && 'Objective'}
-                    {tab === 'A' && 'Assessment'}
-                    {tab === 'P' && 'Plan'}
-                  </button>
-                ))}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-ink">Ambient AI Clinical Scribe Studio</h2>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-accent/15 text-accent border border-accent/30">
+                    <Sparkles className="size-3" /> HITL Human-in-the-Loop Gateway
+                  </span>
+                </div>
+                <p className="text-xs text-ink-muted mt-0.5">
+                  Real-time consultation transcription, automated SOAP synthesis, and multi-tier pre-commit safety cross-checks.
+                </p>
               </div>
-              <span className="text-[10px] text-ink-muted font-medium">Auto-Formatted</span>
             </div>
 
-            <div className="text-xs text-ink-muted leading-relaxed min-h-24 bg-surface p-3 rounded-xl border border-line">
-              {activeSoapTab === 'S' && (
-                <p>Patient reports persistent fasting hyperglycemia (~165 mg/dL) and postprandial dizziness. Notes bilateral peripheral tingling in lower extremities.</p>
-              )}
-              {activeSoapTab === 'O' && (
-                <p>Baseline HbA1c: {patient.hba1c}%. Blood Pressure: {patient.systolic_bp}/{patient.diastolic_bp} mmHg. BMI: {patient.bmi}.</p>
-              )}
-              {activeSoapTab === 'A' && (
-                <p>1. Type 2 Diabetes Mellitus with early diabetic neuropathy signs.<br />2. Essential Hypertension (Stage 2).<br />3. Hyperlipidemia.</p>
-              )}
-              {activeSoapTab === 'P' && (
-                <p>Recommend SGLT2 inhibitor trial based on top clinical twins. Order diabetic companion glucose sensor strips. Schedule 90-day HbA1c re-test.</p>
-              )}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsScribeStudioOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-strong text-white font-semibold text-xs shadow-md shadow-accent/20 hover:scale-[1.01] active:scale-[0.99] transition-all"
+              >
+                <Stethoscope className="size-4" />
+                Launch Scribe Studio (Review & Approve)
+              </button>
             </div>
           </div>
 
-          {/* Sync to Graph Trigger */}
-          <div className="mt-4 pt-3 border-t border-line flex items-center justify-between">
-            <span className="text-xs text-ink-muted">
-              {graphSynced ? '✓ Synchronized with Neo4j' : 'Ready to push encounter notes to Knowledge Graph'}
-            </span>
-            <button
-              onClick={() => {
-                setGraphSynced(true)
-                setTimeout(() => setGraphSynced(false), 3000)
-              }}
-              className="flex items-center gap-1.5 rounded-xl bg-surface-raised border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-accent hover:text-white transition-all shadow-sm"
-            >
-              <Send className="size-3.5" />
-              Sync Graph
-            </button>
+          {/* Value Props & Safety Assurance Badges */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="p-3 rounded-xl border border-line bg-surface/80 flex items-start gap-2.5">
+              <ShieldCheck className="size-4 text-success shrink-0 mt-0.5" />
+              <div className="text-[11px]">
+                <div className="font-semibold text-ink">Zero Silent Mutations</div>
+                <div className="text-ink-muted">All notes & entities stage in-memory until clinician signs off.</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-line bg-surface/80 flex items-start gap-2.5">
+              <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
+              <div className="text-[11px]">
+                <div className="font-semibold text-ink">Pre-Commit Safety Audits</div>
+                <div className="text-ink-muted">Automated checks for patient allergies, SALAD drug lookalikes & stock.</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-line bg-surface/80 flex items-start gap-2.5">
+              <Layers className="size-4 text-accent shrink-0 mt-0.5" />
+              <div className="text-[11px]">
+                <div className="font-semibold text-ink">Dual-Ontology Coding</div>
+                <div className="text-ink-muted">Standardized SNOMED CT for conditions and RxNorm for medications.</div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-line bg-surface/80 flex items-start gap-2.5">
+              <CheckCircle2 className="size-4 text-indigo-500 shrink-0 mt-0.5" />
+              <div className="text-[11px]">
+                <div className="font-semibold text-ink">Two-Vault Cryptography</div>
+                <div className="text-ink-muted">Consultation notes sealed with AES-256 Fernet in Vault 1 + Audit Log.</div>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -1561,6 +1530,18 @@ export default function PatientWorkspacePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Scribe Studio HITL Modal */}
+      {patient && (
+        <ScribeStudioModal
+          patient={patient}
+          isOpen={isScribeStudioOpen}
+          onClose={() => setIsScribeStudioOpen(false)}
+          onEncounterCommitted={() => {
+            loadPatientData()
+          }}
+        />
       )}
     </>
   )

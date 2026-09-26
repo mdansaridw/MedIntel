@@ -13,20 +13,21 @@ import jellyfish
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 # --- 1. LOAD CONFIGURATION ---
-ENV_PATH = r"D:\HackGenIX\backend\.env"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+ROOT_DIR = os.path.abspath(os.path.join(BACKEND_DIR, ".."))
+
+ENV_PATH = os.path.join(BACKEND_DIR, ".env")
 load_dotenv(ENV_PATH)
 
-NEO4J_URI = os.getenv("NEO4J_URI")
-NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
-VAULT_KEY = os.getenv("VAULT_ENCRYPTION_KEY")
-
-if not VAULT_KEY:
-    raise ValueError("VAULT_ENCRYPTION_KEY is missing in backend/.env")
+NEO4J_URI = os.getenv("NEO4J_URI", "neo4j+ssc://8581f5dc.databases.neo4j.io")
+NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "8581f5dc")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "EqfTv_hd155AlgHkiIxe5pLOAFHS7Hn-qRPFYviFjy4")
+VAULT_KEY = os.getenv("VAULT_ENCRYPTION_KEY", "qIRxp1YLh3Ke4O-LBqU6swwvXBZyJyTSocdY8fUVeNA=")
 
 cipher = Fernet(VAULT_KEY.encode('utf-8'))
-CSV_DIR = r"D:\HackGenIX\data\raw\csv"
-VAULT_DB_PATH = r"D:\HackGenIX\backend\identity_vault.db"
+CSV_DIR = os.path.join(ROOT_DIR, "data", "raw", "csv")
+VAULT_DB_PATH = os.path.join(BACKEND_DIR, "identity_vault.db")
 
 # --- 2. INITIALIZE IDENTITY VAULT (Vault 1) ---
 def init_vault():

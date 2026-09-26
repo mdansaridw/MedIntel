@@ -85,5 +85,57 @@ export const MedIntelApi = {
 
   checkFdaRecall: async (lotNumber: string) => {
     return fetchApi<any>(`/supply/fda-recall?lot_number=${lotNumber}`)
+  },
+
+  // --- AMBIENT AI SCRIBE & PHYSICIAN REVIEW ---
+  getScribePresets: async () => {
+    return fetchApi<any[]>('/scribe/presets')
+  },
+
+  transcribeAndExtractEncounter: async (data: FormData | { patient_id: string; dialogue_text?: string; physician_name?: string }) => {
+    if (data instanceof FormData) {
+      const res = await fetch(`${API_BASE_URL}/scribe/transcribe-and-extract`, {
+        method: 'POST',
+        body: data
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Extraction failed' }))
+        throw new Error(err.error || 'Failed to process consultation audio')
+      }
+      return await res.json()
+    } else {
+      const res = await fetch(`${API_BASE_URL}/scribe/transcribe-and-extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Extraction failed' }))
+        throw new Error(err.error || 'Failed to process consultation text')
+      }
+      return await res.json()
+    }
+  },
+
+  commitScribeEncounter: async (payload: {
+    patient_id: string
+    physician_name: string
+    physician_license: string
+    approved_soap: Record<string, string>
+    approved_conditions: any[]
+    approved_medications: any[]
+    approved_vitals?: Record<string, any>
+    override_allergy_warning?: boolean
+  }) => {
+    const res = await fetch(`${API_BASE_URL}/scribe/commit-encounter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data.error || 'Encounter commit rejected by safety rules')
+    }
+    return data
   }
 }

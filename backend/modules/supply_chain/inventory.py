@@ -11,10 +11,11 @@ from ..graph.neo4j_client import Neo4jClient
 logger = logging.getLogger(__name__)
 
 # Load Vault Key for decrypting patient contacts during FDA recall
-load_dotenv(r"D:\HackGenIX\backend\.env")
-VAULT_KEY = os.getenv("VAULT_ENCRYPTION_KEY")
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+VAULT_KEY = os.getenv("VAULT_ENCRYPTION_KEY", "qIRxp1YLh3Ke4O-LBqU6swwvXBZyJyTSocdY8fUVeNA=")
 cipher = Fernet(VAULT_KEY.encode('utf-8')) if VAULT_KEY else None
-VAULT_DB_PATH = r"D:\HackGenIX\backend\identity_vault.db"
+VAULT_DB_PATH = os.path.join(BASE_DIR, "identity_vault.db")
 
 class SupplyChainEngine:
     """

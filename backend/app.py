@@ -9,6 +9,7 @@ from modules.graph.treatment_intelligence import TreatmentIntelligenceEngine
 from modules.graph.chatbot_engine import ChatbotEngine, resolve_patient_name
 from modules.graph.admin_engine import AdminEngine
 from modules.supply_chain.inventory import SupplyChainEngine
+from modules.scribe.scribe_engine import ScribeEngine
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -132,10 +133,9 @@ def get_patient_ai_summary(patient_id):
     Strictly preserves HIPAA Two-Vault isolation (zero PII sent to LLM).
     """
     import google.generativeai as genai
-    from dotenv import load_dotenv
+    from config import Config
 
-    load_dotenv(r"D:\HackGenIX\backend\.env")
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY") or Config.GEMINI_API_KEY
 
     # Fetch de-identified profile from graph
     query = """
@@ -214,10 +214,11 @@ def decrypt_patient_pii():
     import sqlite3
     import json
     from cryptography.fernet import Fernet
-    from dotenv import load_dotenv
+    from config import Config
 
-    load_dotenv(r"D:\HackGenIX\backend\.env")
-    vault_key = os.getenv("VAULT_ENCRYPTION_KEY")
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    vault_db_path = os.path.join(backend_dir, "identity_vault.db")
+    vault_key = os.getenv("VAULT_ENCRYPTION_KEY") or Config.VAULT_ENCRYPTION_KEY
     if not vault_key:
         return jsonify({"error": "Vault encryption key missing"}), 500
 
@@ -230,7 +231,7 @@ def decrypt_patient_pii():
 
     try:
         cipher = Fernet(vault_key.encode('utf-8'))
-        conn = sqlite3.connect(r"D:\HackGenIX\backend\identity_vault.db")
+        conn = sqlite3.connect(vault_db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT encrypted_data FROM patient_pii WHERE patient_id = ?", (patient_id,))
         row = cursor.fetchone()
@@ -496,6 +497,87 @@ def quarantine_admin_lot():
         return jsonify(res), 200
     except Exception as e:
         logger.error(f"Error setting quarantine: {e}", exc_info=True)
+# --- AMBIENT CLINICAL AI SCRIBE & PHYSICIAN REVIEW GATEWAY ---
+@app.route('/api/scribe/presets', methods=['GET'])
+def get_scribe_presets():
+    """Returns realistic clinical consultation presets for testing and demonstration."""
+    return jsonify(ScribeEngine.get_presets())
+
+@app.route('/api/scribe/transcribe-and-extract', methods=['POST'])
+def transcribe_and_extract_encounter():
+    """
+    Staging endpoint: transcribes audio / processes dialog and generates
+    structured SOAP draft + graph candidates + pre-commit safety checks.
+    DOES NOT write to Neo4j.
+    """
+    if request.is_json:
+        req_data = request.get_json(silent=True) or {}
+    else:
+        req_data = request.form
+
+    patient_id = req_data.get('patient_id')
+    dialogue_text = req_data.get('dialogue_text')
+    physician_name = req_data.get('physician_name') or "Dr. Gregory House, MD"
+
+    if not patient_id:
+        return jsonify({"error": "patient_id is required"}), 400
+
+    audio_bytes = None
+    audio_mime = None
+    if 'audio' in request.files:
+        audio_file = request.files['audio']
+        audio_bytes = audio_file.read()
+        audio_mime = audio_file.mimetype or "audio/wav"
+
+    try:
+        draft = ScribeEngine.transcribe_and_extract(
+            patient_id=patient_id,
+            dialogue_text=dialogue_text,
+            audio_file_bytes=audio_bytes,
+            audio_mime_type=audio_mime,
+            physician_name=physician_name
+        )
+        return jsonify(draft), 200
+    except Exception as e:
+        logger.error(f"Error in transcribe_and_extract: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/scribe/commit-encounter', methods=['POST'])
+def commit_scribe_encounter():
+    """
+    PHYSICIAN SIGN-OFF COMMIT:
+    Only executed when physician reviews, edits, and signs off on the staged SOAP note.
+    Commits approved conditions and medications to Neo4j and encrypts note into Vault 1.
+    """
+    data = request.get_json() or {}
+    patient_id = data.get('patient_id')
+    physician_name = data.get('physician_name', 'Dr. Gregory House, MD')
+    physician_license = data.get('physician_license', 'MD-74892')
+    approved_soap = data.get('approved_soap', {})
+    approved_conditions = data.get('approved_conditions', [])
+    approved_medications = data.get('approved_medications', [])
+    approved_vitals = data.get('approved_vitals')
+    override_allergy = data.get('override_allergy_warning', False)
+
+    if not patient_id:
+        return jsonify({"error": "patient_id is required"}), 400
+
+    try:
+        res = ScribeEngine.commit_encounter(
+            patient_id=patient_id,
+            physician_name=physician_name,
+            physician_license=physician_license,
+            approved_soap=approved_soap,
+            approved_conditions=approved_conditions,
+            approved_medications=approved_medications,
+            approved_vitals=approved_vitals,
+            override_allergy_warning=override_allergy
+        )
+        if not res.get("success"):
+            return jsonify(res), 409
+        return jsonify(res), 200
+    except Exception as e:
+        logger.error(f"Error committing scribe encounter: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
