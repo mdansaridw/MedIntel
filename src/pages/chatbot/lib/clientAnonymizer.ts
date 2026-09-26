@@ -114,7 +114,10 @@ const GREETING_PATTERNS = [
   /^\s*good\s*(morning|afternoon|evening|day)\b/i,
   /^\s*(greetings|salutations)\b/i,
   /^\s*how\s*are\s*you\b/i,
-  /^\s*who\s*are\s*you\b/i,
+  /^\s*(who|what)\s*(are|is)\s*(you|your\s+name|this)\b/i,
+  /^\s*what('s|\s+is)\s+(your\s+name|this|medintel|medisynapse)\b/i,
+  /^\s*(introduce\s+yourself|tell\s+me\s+about\s+yourself|who\s+made\s+you|who\s+created\s+you)\b/i,
+  /^\s*(thank\s+you|thanks|thx|bye|goodbye|see\s+ya)\b/i,
   /^\s*what\s*can\s*you\s*do\b/i,
   /^\s*(help|start|menu)\b/i
 ]

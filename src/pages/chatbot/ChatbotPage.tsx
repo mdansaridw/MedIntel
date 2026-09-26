@@ -231,10 +231,22 @@ export default function ChatbotPage() {
     const intent = classifyIntent(text.trim())
 
     if (intent === 'greeting') {
+      const qLower = text.toLowerCase()
+      const isNameQuery = /name|who are you|what are you|who made you|who created you|introduce/i.test(qLower)
+      const isThanks = /thank|thanks|thx|bye|goodbye/i.test(qLower)
+
+      let greetingContent = `👋 **Hello! I am MedIntel's Clinical Knowledge Assistant.**\n\nI am specialized in analyzing clinical health records, patient vitals, medications, and disease intelligence within the Neo4j Knowledge Graph.\n\n**Here is what you can ask me:**\n- **Individual Patient Data:** *"What is his BMI?"*, *"Summarize medical history"*, *"What medications are prescribed?"*, *"List abnormal lab results"*\n- **Population Insights:** *"What are the most common diagnoses across all patients?"*, *"Which medications are discussed in consultations?"*, *"Check for sound-alike drug pairs (SALAD risk)"*\n- **Supply Chain & Safety:** *"Are any critical medications below reorder threshold?"*\n\nChoose one of the **Suggested Questions** above or ask a clinical question to get started!`
+
+      if (isNameQuery) {
+        greetingContent = `👋 **I am the MedIntel Clinical Knowledge Assistant.**\n\nI am an AI-powered Clinical Decision Support (CDS) copilot integrated with the **Neo4j Knowledge Graph** and **HIPAA Two-Vault architecture**.\n\n**Here is what I can do for you:**\n- **Patient Longitudinal Profiling:** Inquire about specific patients (*"What is his BMI?"*, *"Summarize medical history"*, *"What medications are prescribed?"*)\n- **Population Health Intelligence:** Identify top clinical diagnoses, comorbidity clusters, and prevalence trends across all 108 patients.\n- **Pharmacovigilance & Safety:** Cross-check sound-alike look-alike drugs (**SALAD warnings**), allergy contraindications, and active prescription interactions.\n- **Supply Chain Tracking:** Monitor real-time hospital pharmacy stock and flag items below safety reorder thresholds.\n\nSelect a patient from the **Context** selector or choose one of the suggested questions above to get started!`
+      } else if (isThanks) {
+        greetingContent = `You're very welcome! Let me know if you would like to explore any patient biomarkers, clinical trials, disease cohorts, or pharmacy stock levels.`
+      }
+
       const assistantMsg: ChatMessage = {
         id: `msg_asst_${Date.now()}`,
         role: 'assistant',
-        content: `👋 **Hello! I am MedIntel's Clinical Knowledge Assistant.**\n\nI am specialized in analyzing clinical health records, patient vitals, medications, and disease intelligence within the Neo4j Knowledge Graph.\n\n**Here is what you can ask me:**\n- **Individual Patient Data:** *"What is his BMI?"*, *"Summarize medical history"*, *"What medications are prescribed?"*, *"List abnormal lab results"*\n- **Population Insights:** *"What are the most common diagnoses across all patients?"*, *"Which medications are discussed in consultations?"*, *"Check for sound-alike drug pairs (SALAD risk)"*\n- **Supply Chain & Safety:** *"Are any critical medications below reorder threshold?"*\n\nChoose one of the **Suggested Questions** above or ask a clinical question to get started!`,
+        content: greetingContent,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
       setMessages((prev) => [...prev, assistantMsg])

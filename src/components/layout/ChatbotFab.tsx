@@ -105,11 +105,21 @@ export function ChatbotFab() {
 
     if (intent === 'greeting') {
       setIsLoading(false)
+      const qLower = query.toLowerCase()
+      const isNameQuery = /name|who are you|what are you|who made you|who created you|introduce/i.test(qLower)
+      const isThanks = /thank|thanks|thx|bye|goodbye/i.test(qLower)
+
+      let greetingContent = 'Hello! I am the **MedIntel Assistant**.\n\nI can help you explore patient records, clinical trials, active diagnoses, lab trends, and medication therapies. What would you like to explore today?'
+      if (isNameQuery) {
+        greetingContent = '👋 I am the **MedIntel Clinical Knowledge Assistant**.\n\nI am an AI-powered Clinical Decision Support (CDS) copilot integrated with the **Neo4j Knowledge Graph** and **HIPAA Two-Vault architecture**.\n\nYou can ask me about individual patient vitals, medications, clinical trials, population health prevalence, or hospital pharmacy inventory!'
+      } else if (isThanks) {
+        greetingContent = "You're very welcome! Let me know if you would like to explore any patient biomarkers, clinical trials, disease cohorts, or pharmacy stock levels."
+      }
+
       const greetingMsg: FabMessage = {
         id: `ast_greet_${Date.now()}`,
         role: 'assistant',
-        content:
-          'Hello! I am the **MedIntel Assistant**.\n\nI can help you explore patient records, clinical trials, active diagnoses, lab trends, and medication therapies. What would you like to explore today?',
+        content: greetingContent,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
       setMessages((prev) => [...prev, greetingMsg])

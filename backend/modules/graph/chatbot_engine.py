@@ -278,10 +278,21 @@ class ChatbotEngine:
                 resolved_pid = "6095681c-dfc1-8f20-411c-42cef37189fa"
 
         # ---------------------------------------------------------------------
-        # 0. INTENT GUARDRAILS: GREETINGS & NON-CLINICAL CHECKS
+        # 0. INTENT GUARDRAILS: GREETINGS, IDENTITY & NON-CLINICAL CHECKS
         # ---------------------------------------------------------------------
-        greetings = ["hi", "hii", "hiii", "hello", "helo", "hey", "heya", "howdy", "yo", "sup", "good morning", "good afternoon", "good evening", "how are you", "who are you", "what can you do", "help"]
+        identity_phrases = [
+            "what is your name", "what's your name", "whats your name", "who are you",
+            "what are you", "your name", "who created you", "who made you", "tell me about yourself",
+            "introduce yourself", "what do you do", "what can you do", "how do you work", "help",
+            "who are u", "what is ur name", "whats ur name", "what is this", "what is medintel"
+        ]
+        is_identity = any(ip in q_norm for ip in identity_phrases)
+
+        greetings = ["hi", "hii", "hiii", "hello", "helo", "hey", "heya", "howdy", "yo", "sup", "good morning", "good afternoon", "good evening", "how are you"]
         is_greeting = any(q_norm == g or q_norm.startswith(f"{g} ") or q_norm.endswith(f" {g}") for g in greetings)
+
+        polite_phrases = ["thank you", "thanks", "thx", "good job", "awesome", "great job", "bye", "goodbye", "see you"]
+        is_polite = any(pp in q_norm for pp in polite_phrases)
         
         clinical_anchors = [
             "bmi", "vital", "blood pressure", "hba1c", "weight", "height", "medication", "drug",
@@ -291,7 +302,40 @@ class ChatbotEngine:
         ]
         has_clinical_anchor = any(ca in q_norm for ca in clinical_anchors)
 
-        if is_greeting and not has_clinical_anchor and len(q_norm.split()) <= 4:
+        if is_identity:
+            latency_ms = int((time.time() - start_time) * 1000)
+            return {
+                "success": True,
+                "intent": "greeting",
+                "answer": (
+                    "👋 **I am the MedIntel Clinical Knowledge Assistant.**\n\n"
+                    "I am an AI-powered Clinical Decision Support (CDS) copilot integrated with the **Neo4j Knowledge Graph** and **HIPAA Two-Vault architecture**.\n\n"
+                    "**What I can do for you:**\n"
+                    "- **Patient Longitudinal Profiling:** Inquire about specific patients (*\"What is Ali Krajcik's BMI?\"*, *\"Summarize medical history\"*, *\"What medications are prescribed?\"*)\n"
+                    "- **Population Health Intelligence:** Identify top clinical diagnoses, comorbidity clusters, and prevalence trends across all 108 patients.\n"
+                    "- **Pharmacovigilance & Safety:** Cross-check sound-alike look-alike drugs (**SALAD warnings**), allergy contraindications, and active prescription interactions.\n"
+                    "- **Supply Chain Tracking:** Monitor real-time hospital pharmacy stock and flag items below safety reorder thresholds.\n\n"
+                    "Select a patient from the **Context** selector or choose one of the suggested clinical queries to get started!"
+                ),
+                "cypher": "// Conversational identity inquiry - No database traversal required",
+                "traversal": None,
+                "metrics": {"nodes_visited": 0, "edges_traversed": 0, "latency_ms": latency_ms}
+            }
+
+        if is_polite and not has_clinical_anchor:
+            latency_ms = int((time.time() - start_time) * 1000)
+            return {
+                "success": True,
+                "intent": "conversational",
+                "answer": (
+                    "You're very welcome! Let me know if you would like to explore any patient biomarkers, clinical trials, disease cohorts, or pharmacy stock levels."
+                ),
+                "cypher": "// Conversational interaction - No database traversal required",
+                "traversal": None,
+                "metrics": {"nodes_visited": 0, "edges_traversed": 0, "latency_ms": latency_ms}
+            }
+
+        if is_greeting and not has_clinical_anchor and len(q_norm.split()) <= 5:
             latency_ms = int((time.time() - start_time) * 1000)
             return {
                 "success": True,
@@ -828,9 +872,14 @@ class ChatbotEngine:
 
     @classmethod
     def _is_close_match(cls, q1: str, q2: str) -> bool:
-        keywords1 = set(re.findall(r'\b\w{4,}\b', q1))
-        keywords2 = set(re.findall(r'\b\w{4,}\b', q2))
-        return len(keywords1.intersection(keywords2)) >= 3
+        stop_words = {"which", "what", "where", "when", "does", "have", "with", "from", "that", "this", "about", "across", "their", "there", "some", "most", "been", "will", "would", "could", "should", "patient", "patients", "many", "more", "currently", "recent"}
+        keywords1 = set(re.findall(r'\b\w{3,}\b', q1)) - stop_words
+        keywords2 = set(re.findall(r'\b\w{3,}\b', q2)) - stop_words
+        if not keywords1 or not keywords2:
+            return False
+        overlap = keywords1.intersection(keywords2)
+        jaccard = len(overlap) / len(keywords1.union(keywords2))
+        return jaccard >= 0.5 or (len(overlap) >= 3 and len(keywords1) <= len(overlap) + 1)
 
     @classmethod
     def _execute_population_faq(cls, faq: Dict[str, Any], start_time: float) -> Dict[str, Any]:
@@ -1021,14 +1070,9 @@ class ChatbotEngine:
 
     @classmethod
     def _execute_dynamic_cypher_path(cls, question: str, patient_id: Optional[str], context: str, start_time: float) -> Dict[str, Any]:
-        """Dynamic Cypher generation via Gemini for custom queries."""
+        """Dynamic Cypher generation and clinical answer synthesis via Gemini for custom queries."""
         gemini_key = os.getenv("GEMINI_API_KEY")
         
-        safe_fallback_cypher = """
-        MATCH (p:Patient)-[:DIAGNOSED_WITH]->(c:Condition)
-        RETURN c.name AS condition, count(p) AS count ORDER BY count DESC LIMIT 5
-        """
-        generated_cypher = safe_fallback_cypher
         steps = [
             f"Parsed clinical question: \"{question}\"",
             "Identified target entity types in knowledge graph schema",
@@ -1036,17 +1080,26 @@ class ChatbotEngine:
             "Synthesized grounded clinical answer"
         ]
 
+        generated_cypher = None
+        gemini_model = None
+
         if gemini_key:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=gemini_key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                
+                # Active models with fallback
+                for model_candidate in ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"]:
+                    try:
+                        gemini_model = genai.GenerativeModel(model_candidate)
+                        break
+                    except Exception:
+                        continue
 
-                patient_context = f"Target Patient ID: {patient_id}" if patient_id else "Population Context: All Patients"
+                patient_context = f"Target Patient ID: '{patient_id}'" if patient_id else "Population Context: All Patients"
 
-                prompt = f"""
-You are a Cypher query generator for Neo4j.
-Schema:
+                prompt = f"""You are a Clinical Cypher query generator for a Neo4j medical knowledge graph.
+Graph Schema:
 Nodes:
 - (:Patient {{id, birth_year, gender, race, hba1c, systolic_bp, diastolic_bp, bmi}})
 - (:Condition {{code, name}})
@@ -1065,65 +1118,137 @@ Edges:
 User Question: "{question}"
 Context: {patient_context}
 
-Generate a SINGLE READ-ONLY Cypher query to answer the question.
-CRITICAL:
-1. ONLY generate MATCH, WHERE, RETURN, ORDER BY, LIMIT.
-2. DO NOT generate CREATE, DELETE, SET, MERGE, DROP.
-3. Keep LIMIT <= 10.
+CRITICAL RULES:
+1. Generate a SINGLE READ-ONLY Cypher query to retrieve relevant clinical data for the user question.
+2. If the user question is NOT clinical or cannot be answered by this graph schema, return EMPTY.
+3. ONLY use MATCH, WHERE, RETURN, ORDER BY, LIMIT. NEVER use CREATE, DELETE, SET, MERGE, DROP.
+4. Keep LIMIT <= 8.
+5. In conditions/names, use case-insensitive CONTAINS (e.g. toLower(c.name) CONTAINS 'diabetes').
 Return ONLY raw Cypher code inside ```cypher ... ``` fences.
 """
-                resp = model.generate_content(prompt)
+                resp = gemini_model.generate_content(prompt)
                 raw_text = resp.text.strip()
                 match = re.search(r"```(?:cypher)?\s*(.*?)\s*```", raw_text, re.DOTALL)
                 candidate_cypher = match.group(1).strip() if match else raw_text.strip()
 
                 upper_cypher = candidate_cypher.upper()
-                if not any(kw in upper_cypher for kw in ["CREATE", "DELETE", "DROP", "SET", "MERGE", "REMOVE"]):
-                    generated_cypher = candidate_cypher
-                    steps[1] = "Generated safe read-only Cypher query via Gemini"
+                if candidate_cypher and not any(kw in upper_cypher for kw in ["CREATE", "DELETE", "DROP", "SET", "MERGE", "REMOVE"]):
+                    if "MATCH" in upper_cypher and "RETURN" in upper_cypher:
+                        generated_cypher = candidate_cypher
+                        steps[1] = f"Generated safe read-only Cypher query via Gemini"
             except Exception as e:
-                logger.warning(f"Dynamic Cypher generation fallback: {e}")
+                logger.warning(f"Dynamic Cypher generation via Gemini error: {e}")
 
+        # If question is general conversational or Gemini did not produce a Cypher query:
+        if not generated_cypher:
+            if gemini_model:
+                try:
+                    chat_resp = gemini_model.generate_content(
+                        f"You are MedIntel Clinical Knowledge Assistant. The user asks: '{question}'. "
+                        "Respond helpfully in 2-3 sentences. Explain what you can help with regarding clinical records, patient vitals, medications, or hospital inventory."
+                    )
+                    latency_ms = int((time.time() - start_time) * 1000)
+                    return {
+                        "success": True,
+                        "answer": chat_resp.text.strip(),
+                        "cypher": "// Conversational response - No database query required",
+                        "traversal": None,
+                        "metrics": {"nodes_visited": 0, "edges_traversed": 0, "latency_ms": latency_ms}
+                    }
+                except Exception:
+                    pass
+
+            latency_ms = int((time.time() - start_time) * 1000)
+            return {
+                "success": True,
+                "answer": (
+                    f"I could not identify any matching clinical entities or graph relationships for: **\"{question}\"**.\n\n"
+                    "**You can ask clinical questions such as:**\n"
+                    "- *\"Which patients have Hypertension or Diabetes?\"*\n"
+                    "- *\"What is the patient's BMI and baseline vitals?\"*\n"
+                    "- *\"Which medications are below their reorder threshold?\"*\n"
+                    "- *\"Which patients have documented penicillin allergies?\"*"
+                ),
+                "cypher": "// No graph match found",
+                "traversal": None,
+                "metrics": {"nodes_visited": 0, "edges_traversed": 0, "latency_ms": latency_ms}
+            }
+
+        # Execute the generated Cypher
+        records = []
         try:
             records = Neo4jClient.query(generated_cypher)
         except Exception as e:
-            logger.error(f"Failed to execute generated Cypher: {e}")
-            generated_cypher = safe_fallback_cypher
-            records = Neo4jClient.query(generated_cypher)
+            logger.error(f"Failed to execute generated Cypher '{generated_cypher}': {e}")
+            latency_ms = int((time.time() - start_time) * 1000)
+            return {
+                "success": False,
+                "answer": f"A graph execution error occurred while processing the generated query for \"{question}\". Please verify the clinical terminology or rephrase.",
+                "cypher": generated_cypher,
+                "traversal": None,
+                "metrics": {"nodes_visited": 0, "edges_traversed": 0, "latency_ms": latency_ms}
+            }
 
+        # Build graph nodes and edges for visualization
         nodes: List[Dict[str, Any]] = []
         edges: List[Dict[str, Any]] = []
         seen = set()
 
         for idx, rec in enumerate(records[:10]):
+            rec_node_ids = []
             for k, v in rec.items():
-                if isinstance(v, str) and len(v) < 60:
+                if isinstance(v, (str, int, float)) and len(str(v)) < 60:
+                    str_v = str(v)
                     nid = f"dyn_{k}_{idx}"
                     if nid not in seen:
                         seen.add(nid)
+                        grp = "disease" if "cond" in k.lower() else "medication" if "med" in k.lower() else "patient"
                         nodes.append({
                             "id": nid,
-                            "label": v[:20],
-                            "title": f"{k}: {v}",
-                            "group": "disease" if "cond" in k.lower() else "medication" if "med" in k.lower() else "patient"
+                            "label": str_v[:20],
+                            "title": f"{k}: {str_v}",
+                            "group": grp
                         })
-            if len(nodes) >= 2:
-                add_edge_id = f"dyn_edge_{idx}"
-                edges.append({
-                    "id": add_edge_id,
-                    "from": nodes[0]["id"],
-                    "to": nodes[-1]["id"],
-                    "relationship": "TRAVERSED",
-                    "label": "RELATED"
-                })
+                    rec_node_ids.append(nid)
 
-        answer = "Based on the live graph traversal, here are the findings:\n\n"
+            if len(rec_node_ids) >= 2:
+                for j in range(len(rec_node_ids) - 1):
+                    eid = f"dyn_edge_{idx}_{j}"
+                    edges.append({
+                        "id": eid,
+                        "from": rec_node_ids[j],
+                        "to": rec_node_ids[j+1],
+                        "relationship": "TRAVERSED",
+                        "label": "RELATED"
+                    })
+
+        # Synthesize answer using Gemini if records exist
         if records:
-            for r in records[:5]:
-                items = [f"{k}: **{v}**" for k, v in r.items() if v is not None]
-                answer += f"- " + ", ".join(items) + "\n"
+            if gemini_model:
+                try:
+                    synth_prompt = f"""You are MedIntel Clinical Knowledge Assistant.
+User Question: "{question}"
+Live Neo4j Graph Query: {generated_cypher}
+Live Records Retrieved from Knowledge Graph:
+{json.dumps(records[:6], default=str)}
+
+Synthesize a concise, accurate, professional clinical answer in markdown (2-4 sentences or bullet points).
+Highlight key clinical findings, patient counts, or values in **bold**. Ground your answer strictly on the records retrieved."""
+                    synth_resp = gemini_model.generate_content(synth_prompt)
+                    answer = synth_resp.text.strip()
+                except Exception as e:
+                    logger.warning(f"Gemini synthesis error: {e}")
+                    answer = f"**Query Findings for \"{question}\":**\n\n"
+                    for r in records[:5]:
+                        items = [f"{k}: **{v}**" for k, v in r.items() if v is not None]
+                        answer += f"- " + ", ".join(items) + "\n"
+            else:
+                answer = f"**Query Findings for \"{question}\":**\n\n"
+                for r in records[:5]:
+                    items = [f"{k}: **{v}**" for k, v in r.items() if v is not None]
+                    answer += f"- " + ", ".join(items) + "\n"
         else:
-            answer = "No matching records were found in the knowledge graph for the specified criteria."
+            answer = f"No matching records were found in the Neo4j knowledge graph for **\"{question}\"**."
 
         latency_ms = int((time.time() - start_time) * 1000)
 
