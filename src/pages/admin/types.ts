@@ -1,10 +1,15 @@
+/**
+ * Graph-wide counters. Every field is a live Cypher count from
+ * `GET /api/admin/stats`. There is no `observations` field because the graph has no
+ * such node label; a previously hardcoded 68,849 inflated the node total ~110x.
+ */
 export interface AdminCounts {
   patients: number
   conditions: number
   medications: number
-  observations: number
   allergies: number
   pharmacy_items: number
+  supply_items: number
   total_nodes: number
   total_edges: number
 }

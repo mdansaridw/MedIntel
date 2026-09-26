@@ -247,21 +247,21 @@ export function SystemTelemetryTab({ counts, telemetry, onRefresh }: Props) {
           </div>
 
           <div className="rounded-xl border border-line bg-surface-raised p-3.5 text-center">
-            <span className="block text-[10px] uppercase text-ink-muted font-medium">Observations</span>
-            <span className="text-xl font-bold text-ink mt-1 block">{counts.observations.toLocaleString()}</span>
-            <span className="text-[10px] text-accent mt-0.5 block">(:Observation)</span>
-          </div>
-
-          <div className="rounded-xl border border-line bg-surface-raised p-3.5 text-center">
             <span className="block text-[10px] uppercase text-ink-muted font-medium">Allergies</span>
             <span className="text-xl font-bold text-ink mt-1 block">{counts.allergies}</span>
             <span className="text-[10px] text-accent mt-0.5 block">(:Allergy)</span>
           </div>
 
           <div className="rounded-xl border border-line bg-surface-raised p-3.5 text-center">
-            <span className="block text-[10px] uppercase text-ink-muted font-medium">Supply Items</span>
+            <span className="block text-[10px] uppercase text-ink-muted font-medium">Pharmacy Lots</span>
             <span className="text-xl font-bold text-ink mt-1 block">{counts.pharmacy_items.toLocaleString()}</span>
             <span className="text-[10px] text-accent mt-0.5 block">(:PharmacyInventory)</span>
+          </div>
+
+          <div className="rounded-xl border border-line bg-surface-raised p-3.5 text-center">
+            <span className="block text-[10px] uppercase text-ink-muted font-medium">Supply Items</span>
+            <span className="text-xl font-bold text-ink mt-1 block">{counts.supply_items.toLocaleString()}</span>
+            <span className="text-[10px] text-accent mt-0.5 block">(:SupplyItem)</span>
           </div>
         </div>
 

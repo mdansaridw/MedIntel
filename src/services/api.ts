@@ -1,3 +1,10 @@
+import type {
+  AdminStatsResponse,
+  CohortRecord,
+  HealthResponse,
+  PatientRecord,
+} from '../pages/dashboard/types'
+
 const API_BASE_URL = 'http://localhost:5000/api'
 
 /**
@@ -25,9 +32,18 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const MedIntelApi = {
+  // --- SYSTEM ---
+  getHealth: async () => {
+    return fetchApi<HealthResponse>('/health')
+  },
+
+  getAdminStats: async () => {
+    return fetchApi<AdminStatsResponse>('/admin/stats')
+  },
+
   // --- PATIENTS ---
   getPatients: async (limit: number = 50) => {
-    return fetchApi<any[]>(`/patients?limit=${limit}`)
+    return fetchApi<PatientRecord[]>(`/patients?limit=${limit}`)
   },
 
   getPatientProfile: async (patientId: string) => {
@@ -56,7 +72,7 @@ export const MedIntelApi = {
   },
 
   getCohorts: async () => {
-    return fetchApi<any[]>('/cohorts')
+    return fetchApi<CohortRecord[]>('/cohorts')
   },
 
   // --- TREATMENT INTELLIGENCE ---

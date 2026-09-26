@@ -83,15 +83,18 @@ class AdminEngine:
         along with encryption vault verification and compliance indicators.
         """
         start_time = time.time()
+        # Zero-initialised: every field below is overwritten by a live count. Nothing here
+        # is a placeholder, because a fabricated node count is indistinguishable from a
+        # real one once it reaches the dashboard.
         counts = {
-            "patients": 107,
-            "conditions": 3518,
-            "medications": 3851,
-            "observations": 68649,
-            "allergies": 106,
-            "pharmacy_items": 2226,
-            "total_nodes": 78457,
-            "total_edges": 194320
+            "patients": 0,
+            "conditions": 0,
+            "medications": 0,
+            "allergies": 0,
+            "pharmacy_items": 0,
+            "supply_items": 0,
+            "total_nodes": 0,
+            "total_edges": 0
         }
         aura_latency_ms = 35.0
 
@@ -101,34 +104,24 @@ class AdminEngine:
             res = Neo4jClient.query("RETURN 1 AS ping")
             aura_latency_ms = round((time.time() - ping_start) * 1000, 1)
 
-            # Query real node counts
+            # Count every label and the whole graph. total_nodes/total_edges come from
+            # MATCH (n) / MATCH ()-[r]->() rather than a sum of the per-label counts, so
+            # they stay correct when a new label or relationship type is added.
             q = """
-            CALL {
-                MATCH (p:Patient) RETURN count(p) as patients
-            }
-            CALL {
-                MATCH (c:Condition) RETURN count(c) as conditions
-            }
-            CALL {
-                MATCH (m:Medication) RETURN count(m) as medications
-            }
-            CALL {
-                MATCH (a:Allergy) RETURN count(a) as allergies
-            }
-            RETURN patients, conditions, medications, allergies
+            CALL { MATCH (n) RETURN count(n) AS total_nodes }
+            CALL { MATCH ()-[r]->() RETURN count(r) AS total_edges }
+            CALL { MATCH (p:Patient) RETURN count(p) AS patients }
+            CALL { MATCH (c:Condition) RETURN count(c) AS conditions }
+            CALL { MATCH (m:Medication) RETURN count(m) AS medications }
+            CALL { MATCH (a:Allergy) RETURN count(a) AS allergies }
+            CALL { MATCH (i:PharmacyInventory) RETURN count(i) AS pharmacy_items }
+            CALL { MATCH (s:SupplyItem) RETURN count(s) AS supply_items }
+            RETURN total_nodes, total_edges, patients, conditions, medications,
+                   allergies, pharmacy_items, supply_items
             """
             data = Neo4jClient.query(q)
             if data and len(data) > 0:
-                row = data[0]
-                counts["patients"] = row.get("patients", counts["patients"])
-                counts["conditions"] = row.get("conditions", counts["conditions"])
-                counts["medications"] = row.get("medications", counts["medications"])
-                counts["allergies"] = row.get("allergies", counts["allergies"])
-                counts["total_nodes"] = (
-                    counts["patients"] + counts["conditions"] +
-                    counts["medications"] + counts["allergies"] +
-                    counts["observations"] + counts["pharmacy_items"]
-                )
+                counts.update({k: v for k, v in data[0].items() if k in counts})
         except Exception as e:
             logger.warning(f"Error executing live count query in Neo4j: {e}")
 

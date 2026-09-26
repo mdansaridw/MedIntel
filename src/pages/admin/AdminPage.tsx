@@ -21,15 +21,17 @@ import type {
   SaladRuleItem,
 } from './types'
 
+// Zeroed, not populated with plausible-looking numbers: a fallback that reads as real
+// telemetry is worse than an obvious zero when the stats endpoint is unreachable.
 const DEFAULT_COUNTS: AdminCounts = {
-  patients: 108,
-  conditions: 188,
-  medications: 146,
-  observations: 68649,
-  allergies: 19,
-  pharmacy_items: 2226,
-  total_nodes: 71336,
-  total_edges: 194320,
+  patients: 0,
+  conditions: 0,
+  medications: 0,
+  allergies: 0,
+  pharmacy_items: 0,
+  supply_items: 0,
+  total_nodes: 0,
+  total_edges: 0,
 }
 
 const DEFAULT_TELEMETRY: AdminTelemetry = {

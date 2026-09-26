@@ -47,8 +47,13 @@ export interface DashboardMetric {
   label: string
   value: string
   detail: string
-  change: string
-  direction: 'up' | 'down' | 'neutral'
+  /**
+   * Optional trend/secondary-stat chip. The clinical graph is a static snapshot with no
+   * time dimension, so a directional delta cannot be derived honestly; supply a real
+   * secondary statistic instead, or omit the chip entirely.
+   */
+  change?: string
+  direction?: 'up' | 'down' | 'neutral'
 }
 
 export interface BiomarkerReading {

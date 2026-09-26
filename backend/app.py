@@ -70,9 +70,10 @@ def get_patients():
         c.name CONTAINS 'labor force'
     )
     WITH p, collect(DISTINCT c.name) as conditions, count(DISTINCT c) as condition_count
+    OPTIONAL MATCH (p)-[:PRESCRIBED]->(m:Medication)
     RETURN p.id AS id, p.birth_year AS birth_year, p.gender AS gender, p.race AS race,
            p.hba1c AS hba1c, p.systolic_bp AS systolic_bp, p.diastolic_bp AS diastolic_bp, p.bmi AS bmi,
-           conditions, condition_count
+           conditions, condition_count, count(DISTINCT m) as medication_count
     LIMIT $limit
     """
     results = Neo4jClient.query(query, {"limit": limit})
@@ -86,9 +87,10 @@ def get_patients():
         MATCH (p:Patient {id: $ali_id})
         OPTIONAL MATCH (p)-[:DIAGNOSED_WITH]->(c:Condition)
         WITH p, collect(DISTINCT c.name) as conditions, count(DISTINCT c) as condition_count
+        OPTIONAL MATCH (p)-[:PRESCRIBED]->(m:Medication)
         RETURN p.id AS id, p.birth_year AS birth_year, p.gender AS gender, p.race AS race,
                p.hba1c AS hba1c, p.systolic_bp AS systolic_bp, p.diastolic_bp AS diastolic_bp, p.bmi AS bmi,
-               conditions, condition_count
+               conditions, condition_count, count(DISTINCT m) as medication_count
         """
         ali_res = Neo4jClient.query(ali_query, {"ali_id": ali_id})
         if ali_res:
