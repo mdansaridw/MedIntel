@@ -19,7 +19,8 @@ import { MedIntelApi } from '../../services/api'
 
 export default function PatientIntelligencePage() {
   const { patientId = '' } = useParams()
-  const patient = getPatientById(patientId) // Keep mock patient demographic layout for now
+  const mockPatient = getPatientById(patientId)
+  const [patient, setPatient] = useState<any>(mockPatient)
   
   const [loading, setLoading] = useState(true)
   const [twinData, setTwinData] = useState<any>(null)
@@ -27,14 +28,29 @@ export default function PatientIntelligencePage() {
   
   useEffect(() => {
     if (!patientId) return
+    if (!mockPatient) {
+      MedIntelApi.getPatientProfile(patientId).then(p => {
+        if (p && !p.error) {
+          setPatient({
+            id: p.id,
+            name: `Patient #${p.id.substring(0, 8)}`,
+            birthYear: p.birth_year,
+            gender: p.gender,
+            conditions: p.conditions?.map((c: any) => c.name) || [],
+            status: 'active'
+          })
+        }
+      }).catch(console.error)
+    }
+
     MedIntelApi.getPersonalizedTreatment(patientId).then(data => {
       setTwinData(data.top_twins?.[0]) // Top twin
       setTreatmentPlan(data.personalized_treatment_plan || [])
       setLoading(false)
     }).catch(console.error)
-  }, [patientId])
+  }, [patientId, mockPatient])
 
-  if (!patient) {
+  if (!patient && !loading) {
     return (
       <>
         <PageHeader eyebrow="Research" title="Patient intelligence not found" />

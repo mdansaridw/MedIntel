@@ -333,6 +333,30 @@ def get_patient_subgraph(patient_id):
         logger.error(f"Error fetching subgraph: {e}")
         return jsonify({"error": str(e)}), 500
 
+# --- DISEASE COHORTS ---
+@app.route('/api/cohorts', methods=['GET'])
+def get_cohorts():
+    query = """
+    MATCH (p:Patient)
+    WITH count(p) as total_patients
+    MATCH (c:Condition)
+    OPTIONAL MATCH (pt:Patient)-[:DIAGNOSED_WITH]->(c)
+    WITH c, total_patients, count(DISTINCT pt) as patient_count
+    WHERE patient_count > 0
+    RETURN c.code as code, 
+           c.name as name, 
+           c.category as category, 
+           patient_count, 
+           round(100.0 * patient_count / CASE WHEN total_patients = 0 THEN 1 ELSE total_patients END, 1) as prevalence_pct
+    ORDER BY patient_count DESC, c.name ASC
+    """
+    try:
+        results = Neo4jClient.query(query)
+        return jsonify(results or [])
+    except Exception as e:
+        logger.error(f"Error fetching cohorts: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # --- PATIENT SIMILARITY (METHOD 4) ---
 @app.route('/api/cohort/similar', methods=['GET'])
 def get_similar_patients():

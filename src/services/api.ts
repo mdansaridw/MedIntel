@@ -50,9 +50,13 @@ export const MedIntelApi = {
     return fetchApi<{ nodes: any[]; edges: any[] }>(`/graph/subgraph/${patientId}`)
   },
 
-  // --- PATIENT SIMILARITY (METHOD 4) ---
+  // --- PATIENT SIMILARITY (METHOD 4) & COHORTS ---
   getSimilarPatients: async (patientId: string, topK: number = 5) => {
     return fetchApi<any[]>(`/cohort/similar?patient_id=${patientId}&top_k=${topK}`)
+  },
+
+  getCohorts: async () => {
+    return fetchApi<any[]>('/cohorts')
   },
 
   // --- TREATMENT INTELLIGENCE ---
